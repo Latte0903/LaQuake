@@ -49,7 +49,7 @@ LaQuake 是一款专为 Windows 平台打造的地震预警接收与强提醒工
 
    Bash
    ```
-   git clone https://github.com/YourUsername/LaQuake.git
+   git clone https://github.com/Latte0903/LaQuake.git
 
    ```
 2. 进入项目目录：
