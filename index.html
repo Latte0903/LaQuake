@@ -1,0 +1,2015 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="app.title">LaQuake - 地震预警</title>
+  <style>
+    @font-face {
+      font-family: 'OPPO Sans';
+      src: url('Fonts/OPPO Sans 4.0.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    *::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    html, body {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    body {
+      font-family: 'OPPO Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #0f172a;
+      color: #ffffff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    body.normal-mode {
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    }
+
+    .glass {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+    }
+
+    .glass-dark {
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+    }
+
+    .titlebar {
+      height: 40px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 6px 0 14px;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+    .titlebar button, .titlebar .status { -webkit-app-region: no-drag; }
+
+    .titlebar-left, .titlebar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 100%;
+    }
+
+    .app-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+      letter-spacing: 0.3px;
+    }
+
+    .app-version {
+      font-size: 11px;
+      font-weight: 500;
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      padding: 1px 7px;
+      border-radius: 999px;
+      letter-spacing: 0.3px;
+      -webkit-app-region: no-drag;
+      user-select: none;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      color: #cbd5e1;
+      padding: 4px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .status:hover { background: rgba(255, 255, 255, 0.08); }
+    .status-ping { color: #94a3b8; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .status-ping:empty { display: none; }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #64748b;
+      flex-shrink: 0;
+    }
+    .status-dot.ok { background-color: #4ade80; box-shadow: 0 0 6px rgba(74, 222, 128, 0.7); }
+    .status-dot.checking { background-color: #fbbf24; animation: dotPulse 1s ease-in-out infinite; }
+    .status-dot.danger { background-color: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+    @keyframes dotPulse { 50% { opacity: 0.35; } }
+
+    .win-controls { display: flex; align-items: center; height: 100%; }
+    .mac-controls { display: none; gap: 8px; }
+
+    .win-btn {
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+    .win-btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+    .win-btn.win-close:hover { background: #e81123; color: #fff; }
+
+    .mac-btn {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .mac-close { background: #ff5f57; }
+    .mac-min { background: #febc2e; }
+    .mac-max { background: #28c840; }
+    .mac-btn svg { opacity: 0; width: 9px; height: 9px; transition: opacity 0.12s ease; }
+    .mac-controls:hover .mac-btn svg { opacity: 0.65; }
+
+    body.titlebar-mac .mac-controls { display: flex; }
+    body.titlebar-mac #winControls { display: none; }
+
+    .main-content {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .page {
+      width: 100%;
+      height: 100%;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .page.active {
+      display: flex;
+    }
+
+    .list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+
+    .list-item {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border-left: 4px solid #3b82f6;
+    }
+
+    .list-item:hover {
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateX(4px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .list-item.danger {
+      border-left-color: #ef4444;
+    }
+
+    .list-item.warning {
+      border-left-color: #fbbf24;
+    }
+
+    .list-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .list-item-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .list-item-time {
+      font-size: 12px;
+      color: #9ca3af;
+    }
+
+    .list-item-info {
+      font-size: 13px;
+      color: #d1d5db;
+      display: flex;
+      gap: 16px;
+    }
+
+    .list-item-info span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-bar {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 10px 15px;
+      display: flex;
+      justify-content: space-around;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 10px 20px;
+      border-radius: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      color: #9ca3af;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .nav-item.active {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.5);
+      color: #3b82f6;
+    }
+
+    .nav-item svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .nav-item span {
+      font-size: 12px;
+    }
+
+    body.floating-nav .nav-bar {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 16px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 32px;
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(34px) saturate(180%);
+      -webkit-backdrop-filter: blur(34px) saturate(180%);
+      box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      z-index: 50;
+      transition: transform 0.2s ease;
+    }
+    body.floating-nav .nav-item {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      padding: 9px 22px;
+    }
+    body.floating-nav .main-content .page:last-child,
+    body.floating-nav .list-container,
+    body.floating-nav .settings-container {
+      padding-bottom: 104px;
+    }
+
+    .settings-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .settings-menu-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 6px 2px 20px;
+    }
+    .settings-menu-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    .settings-menu-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 20px;
+      color: #fff;
+      font-size: 15px;
+      cursor: pointer;
+      text-align: left;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .settings-menu-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(59, 130, 246, 0.6);
+      background: rgba(59, 130, 246, 0.14);
+    }
+    .menu-card-icon { font-size: 24px; line-height: 1; }
+    .menu-card-name { font-weight: 600; }
+    .settings-back-button {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #fff;
+      border-radius: 14px;
+      padding: 10px 18px;
+      font-size: 13px;
+      cursor: pointer;
+      margin-bottom: 16px;
+      transition: background 0.15s ease;
+    }
+    .settings-back-button:hover { background: rgba(255, 255, 255, 0.18); }
+
+    .settings-section {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .settings-section-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #3b82f6;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #2d3748;
+    }
+
+    .settings-row:last-child {
+      border-bottom: none;
+    }
+
+    .settings-label {
+      font-size: 13px;
+      color: #d1d5db;
+    }
+
+    .settings-value {
+      font-size: 13px;
+      color: #fff;
+    }
+
+    .settings-input {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 8px 12px;
+      color: #fff;
+      font-size: 13px;
+      width: 140px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .settings-input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    .settings-select {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 8px 12px;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .settings-select:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    .settings-radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      max-width: 400px;
+    }
+
+    .settings-radio-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .settings-radio-label input[type="radio"] {
+      accent-color: #3b82f6;
+      cursor: pointer;
+    }
+
+    .template-variables {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+      color: #9ca3af;
+      max-width: 300px;
+    }
+
+    .template-variables div {
+      background-color: #1f2937;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    #page-push .settings-row input[type="text"].settings-input {
+      flex: 1;
+      width: 100%;
+      min-width: 240px;
+    }
+
+    .push-textarea {
+      width: 100%;
+      min-height: 160px;
+      font-family: Consolas, 'Courier New', monospace;
+      line-height: 1.5;
+      resize: vertical;
+    }
+
+    .push-preview {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.8;
+      color: #d1d5db;
+    }
+
+    .push-preview-json {
+      font-family: Consolas, 'Courier New', monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .push-hint {
+      flex: 1;
+      font-size: 12px;
+      line-height: 1.7;
+      color: #9ca3af;
+    }
+
+    .push-vars {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .push-var-chip {
+      background: #1f2937;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: Consolas, 'Courier New', monospace;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .push-var-chip:hover {
+      background: rgba(59, 130, 246, 0.25);
+      border-color: #3b82f6;
+    }
+
+    .settings-switch {
+      position: relative;
+      width: 48px;
+      height: 24px;
+      background-color: #374151;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    .settings-switch.active {
+      background-color: #3b82f6;
+    }
+
+    .settings-switch::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      background-color: #fff;
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.2s ease;
+    }
+
+    .settings-switch.active::after {
+      transform: translateX(24px);
+    }
+
+    .settings-button {
+      background: rgba(59, 130, 246, 0.8);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 12px;
+      padding: 10px 20px;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .settings-button:hover {
+      background: rgba(59, 130, 246, 1);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+    }
+
+    .settings-button.danger {
+      background: rgba(239, 68, 68, 0.8);
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    }
+
+    .settings-button.danger:hover {
+      background: rgba(239, 68, 68, 1);
+      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+    }
+
+    .app-toast {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-12px);
+      max-width: 86%;
+      background: rgba(31, 41, 55, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #f3f4f6;
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 11px 18px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 9999;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      white-space: pre-line;
+    }
+    .app-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .app-toast.error { border-color: rgba(239, 68, 68, 0.7); }
+    .app-toast.success { border-color: rgba(34, 197, 94, 0.7); }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.active {
+      display: flex !important;
+    }
+
+    .modal-content {
+      background: rgba(30, 30, 30, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      width: 90%;
+      max-width: 400px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #999;
+      font-size: 28px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+
+    .modal-close:hover {
+      color: #fff;
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+
+    .about-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .about-item:last-child {
+      border-bottom: none;
+    }
+
+    .about-label {
+      color: #999;
+      font-size: 14px;
+    }
+
+    .about-value {
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .about-link {
+      color: #3b82f6;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .about-link:hover {
+      color: #60a5fa;
+      text-decoration: underline;
+    }
+
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #3b82f6;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #6b7280;
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .sound-test-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .detail-container {
+      padding: 20px;
+      height: calc(100vh - 140px);
+      overflow-y: auto;
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .detail-back-button {
+      padding: 8px 16px;
+      background-color: #374151;
+      color: #f3f4f6;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+
+    .detail-back-button:hover {
+      background-color: #4b5563;
+    }
+
+    .detail-header h2 {
+      margin: 0;
+      font-size: 20px;
+      color: #f3f4f6;
+    }
+
+    .detail-content {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .detail-section {
+      background-color: #1f2937;
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .detail-section h3 {
+      margin: 0 0 16px 0;
+      font-size: 16px;
+      color: #9ca3af;
+      border-bottom: 1px solid #374151;
+      padding-bottom: 8px;
+    }
+
+    .detail-item {
+      background-color: #111827;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      border-left: 3px solid #3b82f6;
+    }
+
+    .detail-item.warning {
+      border-left-color: #f59e0b;
+    }
+
+    .detail-item.danger {
+      border-left-color: #ef4444;
+    }
+
+    .detail-item-title {
+      font-size: 16px;
+      font-weight: bold;
+      color: #f3f4f6;
+      margin-bottom: 8px;
+    }
+
+    .detail-item-time {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 12px;
+    }
+
+    .detail-info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .detail-info-item {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .detail-info-item label {
+      color: #9ca3af;
+    }
+
+    .detail-info-item value {
+      color: #f3f4f6;
+      font-weight: 500;
+    }
+
+    .detail-empty {
+      color: #6b7280;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .detail-overview {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border-radius: 24px;
+      padding: 32px 24px;
+      margin-bottom: 24px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(59, 130, 246, 0.3);
+    }
+
+    .overview-location {
+      font-size: 28px;
+      font-weight: bold;
+      color: white;
+      margin-bottom: 24px;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .overview-stats {
+      display: flex;
+      justify-content: space-around;
+      gap: 16px;
+    }
+
+    .overview-stat {
+      flex: 1;
+      background-color: rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      padding: 16px 12px;
+      backdrop-filter: blur(10px);
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: white;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .overview-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      justify-content: center;
+    }
+
+    .action-button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .action-button.search {
+      background-color: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .action-button.search:hover {
+      background-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .action-button.ai {
+      background-color: rgba(234, 179, 8, 0.8);
+      color: #1f2937;
+    }
+
+    .action-button.ai:hover {
+      background-color: rgba(234, 179, 8, 1);
+    }
+
+    .action-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .ai-summary-content {
+      background-color: #111827;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #f3f4f6;
+      white-space: pre-wrap;
+      min-height: 80px;
+    }
+
+    .ai-loading {
+      color: #3b82f6;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background-color: #1f2937;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow: hidden;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #374151;
+      background-color: #111827;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+      color: #f3f4f6;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #9ca3af;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .modal-close:hover {
+      color: #f3f4f6;
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      max-height: 60vh;
+    }
+
+    .form-row {
+      margin-bottom: 16px;
+    }
+
+    .form-row label {
+      display: block;
+      font-size: 14px;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      background-color: #111827;
+      color: #f3f4f6;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+
+    .modal-input:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 16px 20px;
+      border-top: 1px solid #374151;
+      background-color: #111827;
+    }
+
+    .modal-button {
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+    }
+
+    .modal-button.cancel {
+      background-color: #374151;
+      color: #f3f4f6;
+    }
+
+    .modal-button.cancel:hover {
+      background-color: #4b5563;
+    }
+
+    .modal-button.confirm {
+      background-color: #3b82f6;
+      color: white;
+    }
+
+    .modal-button.confirm:hover {
+      background-color: #2563eb;
+    }
+
+    .activation-flow {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .activation-step {
+      display: none;
+      width: 100%;
+      max-width: 500px;
+      padding: 40px;
+    }
+
+    .activation-step.active {
+      display: block;
+    }
+
+    .activation-content {
+      text-align: center;
+    }
+
+    .activation-icon {
+      font-size: 80px;
+      margin-bottom: 24px;
+    }
+
+    .activation-content h1 {
+      color: white;
+      font-size: 28px;
+      margin-bottom: 12px;
+    }
+
+    .activation-content p {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 16px;
+      margin-bottom: 32px;
+    }
+
+    .activation-button {
+      padding: 14px 32px;
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .activation-button:hover:not(:disabled) {
+      background-color: #2563eb;
+      transform: translateY(-2px);
+    }
+
+    .activation-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .activation-button.secondary {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .activation-button.secondary:hover:not(:disabled) {
+      background-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .activation-nav {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 32px;
+    }
+
+    .mode-options {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .mode-option {
+      background-color: rgba(255, 255, 255, 0.1);
+      border: 2px solid transparent;
+      border-radius: 16px;
+      padding: 24px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+
+    .mode-option:hover {
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .mode-option.selected {
+      border-color: #3b82f6;
+      background-color: rgba(59, 130, 246, 0.2);
+    }
+
+    .mode-icon {
+      font-size: 32px;
+      margin-bottom: 12px;
+    }
+
+    .mode-title {
+      color: white;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .mode-desc {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+    }
+
+    .mode-warning {
+      background-color: rgba(234, 179, 8, 0.2);
+      border: 1px solid rgba(234, 179, 8, 0.5);
+      border-radius: 8px;
+      padding: 12px;
+      color: #fbbf24;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .agreement-scroll {
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 12px;
+      padding: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+      text-align: left;
+      margin-bottom: 24px;
+    }
+
+    .agreement-scroll h3 {
+      color: #3b82f6;
+      font-size: 16px;
+      margin-top: 16px;
+      margin-bottom: 8px;
+    }
+
+    .agreement-scroll h3:first-child {
+      margin-top: 0;
+    }
+
+    .agreement-scroll p {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .agreement-checkbox {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .agreement-checkbox input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .agreement-checkbox label {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="activation-flow" class="activation-flow" style="display: none;">
+    <div class="activation-step active" id="step-welcome">
+      <div class="activation-content">
+        <div class="activation-icon">🌍</div>
+        <h1 data-i18n="activation.welcome">欢迎使用 LaQuake</h1>
+        <p data-i18n="activation.welcome.desc">地震预警接收与地震速报信息查询软件</p>
+        <button class="activation-button" onclick="nextActivationStep()" data-i18n="activation.welcome.start">开始使用 →</button>
+      </div>
+    </div>
+    
+    <div class="activation-step" id="step-mode">
+      <div class="activation-content">
+        <h1 data-i18n="activation.mode">选择使用模式</h1>
+        <p data-i18n="activation.mode.desc">请选择适合您的使用模式</p>
+        <div class="mode-options">
+          <div class="mode-option" onclick="selectMode('eewcn')">
+            <div class="mode-icon">🔗</div>
+            <div class="mode-title" data-i18n="activation.mode.eewcn">EEW CN兼容模式</div>
+            <div class="mode-desc" data-i18n="activation.mode.eewcn.desc">共享EEWCN的媒体文件，节省存储空间</div>
+          </div>
+          <div class="mode-option" onclick="selectMode('standalone')">
+            <div class="mode-icon">🚀</div>
+            <div class="mode-title" data-i18n="activation.mode.standalone">独立使用模式</div>
+            <div class="mode-desc" data-i18n="activation.mode.standalone.desc">完全独立运行，不依赖其他软件</div>
+          </div>
+        </div>
+        <div class="mode-warning" id="mode-warning" style="display: none;" data-i18n="activation.mode.warning">
+          ⚠️ 请确保EEWCN已安装于 C:\Program Files\eewcn
+        </div>
+        <div class="activation-nav">
+          <button class="activation-button secondary" onclick="prevActivationStep()" data-i18n="activation.back">← 返回</button>
+          <button class="activation-button" id="mode-next-btn" onclick="nextActivationStep()" disabled data-i18n="activation.next">下一步 →</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="activation-step" id="step-agreement">
+      <div class="activation-content">
+        <h1 data-i18n="activation.agreement">用户协议与免责声明</h1>
+        <div class="agreement-scroll">
+          <h3 data-i18n="activation.agreement.title1">用户协议</h3>
+          <p data-i18n="activation.agreement.item1">1. 本软件仅供个人学习和研究使用，严禁用于商业用途。</p>
+          <p data-i18n="activation.agreement.item2">2. 用户在使用本软件前，应仔细阅读并理解本协议的全部内容。</p>
+          <p data-i18n="activation.agreement.item3">3. 用户应遵守国家法律法规，不得利用本软件从事违法活动。</p>
+          <p data-i18n="activation.agreement.item4">4. 用户应自行承担使用本软件所产生的一切风险和后果。</p>
+          <br>
+          <h3 data-i18n="activation.agreement.title2">免责声明</h3>
+          <p data-i18n="activation.agreement.item5">1. 本软件提供的地震预警信息仅供参考，不构成任何决策建议。</p>
+          <p data-i18n="activation.agreement.item6">2. 地震预警信息可能存在延迟或误差，用户不应完全依赖。</p>
+          <p data-i18n="activation.agreement.item7">3. 开发者不对因使用本软件而导致的任何损失承担责任。</p>
+          <p data-i18n="activation.agreement.item8">4. 本软件不保证预警信息的准确性、完整性和及时性。</p>
+        </div>
+        <div class="agreement-checkbox">
+          <input type="checkbox" id="agree-check">
+          <label for="agree-check" data-i18n="activation.agree.check">我已阅读并同意上述协议</label>
+        </div>
+        <div class="activation-nav">
+          <button class="activation-button secondary" onclick="prevActivationStep()" data-i18n="activation.back">← 返回</button>
+          <button class="activation-button" id="agree-next-btn" onclick="completeActivation()" disabled data-i18n="activation.finish">完成 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-left">
+      <div class="win-controls mac-controls" id="macControls">
+        <button class="mac-btn mac-close" id="macCloseBtn" title="关闭">
+          <svg viewBox="0 0 12 12"><path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="#4d0000" stroke-width="1.3" stroke-linecap="round"/></svg>
+        </button>
+        <button class="mac-btn mac-min" id="macMinBtn" title="最小化">
+          <svg viewBox="0 0 12 12"><rect x="2.2" y="5.5" width="7.6" height="1.2" rx="0.6" fill="#5f3d00"/></svg>
+        </button>
+        <button class="mac-btn mac-max" id="macMaxBtn" title="最大化">
+          <svg viewBox="0 0 12 12"><path d="M2.8 6.2 h6.4 M6 3 v6" stroke="#0a5117" stroke-width="1.3" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="app-title" data-i18n="app.title">LaQuake - 地震预警</div>
+      <span class="app-version">V1.1</span>
+    </div>
+    <div class="titlebar-right">
+      <div class="status" id="statusBox" title="点击重新检测">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText" data-i18n="status.untested">未检测</span>
+        <span class="status-ping" id="statusPing"></span>
+      </div>
+      <div class="win-controls win-controls-right" id="winControls">
+        <button class="win-btn" id="minBtn" title="最小化">
+          <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
+        </button>
+        <button class="win-btn" id="maxBtn" title="最大化">
+          <svg width="11" height="11" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button class="win-btn win-close" id="closeBtn" title="关闭">
+          <svg width="11" height="11" viewBox="0 0 12 12"><path d="M1 1 L11 11 M11 1 L1 11" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="page active" id="page-eew">
+      <div class="list-container" id="eewList">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <p data-i18n="eq.loading">加载中...</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-eq">
+      <div class="list-container" id="eqList">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <p data-i18n="eq.loading">加载中...</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-detail">
+      <div class="detail-container">
+        <div class="detail-header">
+          <button class="detail-back-button" onclick="goBack()" data-i18n="detail.back">← 返回</button>
+          <h2 id="detail-title" data-i18n="detail.title">地震详情</h2>
+        </div>
+        
+        <div class="detail-overview">
+          <div class="overview-location" id="overview-location" data-i18n="detail.unknown">未知地点</div>
+          <div class="overview-stats">
+            <div class="overview-stat">
+              <div class="stat-value" id="overview-magnitude">0</div>
+              <div class="stat-label" data-i18n="detail.magnitude">震级</div>
+            </div>
+            <div class="overview-stat">
+              <div class="stat-value" id="overview-distance">0</div>
+              <div class="stat-label" data-i18n="detail.distance">距离(km)</div>
+            </div>
+            <div class="overview-stat">
+              <div class="stat-value" id="overview-intensity">0</div>
+              <div class="stat-label" data-i18n="detail.intensity">烈度</div>
+            </div>
+          </div>
+          
+          <div class="overview-actions">
+            <button class="action-button search" onclick="searchEarthquake()" data-i18n="detail.search">查看详细内容</button>
+            <button class="action-button ai" onclick="summarizeEarthquake()" data-i18n="detail.ai">AI总结</button>
+          </div>
+        </div>
+        
+        <div id="ai-summary-container" class="detail-section" style="display: none;">
+          <h3 data-i18n="detail.ai">AI总结</h3>
+          <div id="ai-summary-content" class="ai-summary-content">
+            <div class="ai-loading" data-i18n="detail.ai.thinking">正在思考中...</div>
+          </div>
+        </div>
+        
+        <div class="detail-content">
+          <div id="detail-eew-section" class="detail-section">
+            <h3 data-i18n="detail.eewInfo">预警信息</h3>
+            <div id="detail-eew-list"></div>
+          </div>
+          
+          <div id="detail-eq-section" class="detail-section">
+            <h3 data-i18n="detail.eqInfo">速报信息</h3>
+            <div id="detail-eq-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-settings">
+      <div class="settings-container">
+        <div id="settings-menu">
+          <h2 class="settings-menu-title" data-i18n="settings.menu.title">设置</h2>
+          <div class="settings-menu-grid">
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('dataSource')">
+              <span class="menu-card-icon">🌐</span>
+              <span class="menu-card-name" data-i18n="settings.dataSource">数据源设置</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('query')">
+              <span class="menu-card-icon">⏱️</span>
+              <span class="menu-card-name" data-i18n="settings.query">查询参数设置</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('threshold')">
+              <span class="menu-card-icon">🚨</span>
+              <span class="menu-card-name" data-i18n="settings.threshold">预警阈值设置</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('geo')">
+              <span class="menu-card-icon">📍</span>
+              <span class="menu-card-name" data-i18n="settings.geo">地理位置与计算参数</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('appearance')">
+              <span class="menu-card-icon">🎨</span>
+              <span class="menu-card-name" data-i18n="settings.appearance">界面外观</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('sound')">
+              <span class="menu-card-icon">🔊</span>
+              <span class="menu-card-name" data-i18n="settings.sound">声音设置</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('ai')">
+              <span class="menu-card-icon">🤖</span>
+              <span class="menu-card-name" data-i18n="settings.ai">AI设置</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('system')">
+              <span class="menu-card-icon">⚙️</span>
+              <span class="menu-card-name" data-i18n="settings.system">系统设置</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="settings-detail" style="display: none;">
+          <button type="button" class="settings-back-button" onclick="openSettingsMenu()">
+            <span data-i18n="settings.menu.back">← 返回设置</span>
+          </button>
+
+        <div class="settings-section" data-settings-group="dataSource">
+          <div class="settings-section-title" data-i18n="settings.dataSource">数据源设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eewSource">预警信息数据源</span>
+            <div class="settings-radio-group">
+              <label class="settings-radio-label"><input type="radio" name="eewSource" value="cenc" checked> <span data-i18n="settings.eewSource.cenc">中国地震台网</span></label>
+              <label class="settings-radio-label"><input type="radio" name="eewSource" value="sc"> <span data-i18n="settings.eewSource.sc">四川省地震局</span></label>
+              <label class="settings-radio-label"><input type="radio" name="eewSource" value="fj"> <span data-i18n="settings.eewSource.fj">福建省地震局</span></label>
+              <label class="settings-radio-label"><input type="radio" name="eewSource" value="cq"> <span data-i18n="settings.eewSource.cq">重庆市地震局</span></label>
+              <label class="settings-radio-label"><input type="radio" name="eewSource" value="jma"> <span data-i18n="settings.eewSource.jma">日本气象厅</span></label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eewCWA">额外接收中央气象署数据</span>
+            <div class="settings-switch" id="eewCWA" onclick="toggleSwitch('eewCWA')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eqSource">地震速报历史数据源</span>
+            <select class="settings-select" id="eqSource">
+              <option value="cenc" data-i18n="settings.eqSource.cenc">中国地震台网</option>
+              <option value="jma" data-i18n="settings.eqSource.jma">日本气象厅</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="query">
+          <div class="settings-section-title" data-i18n="settings.query">查询参数设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eewPollInterval">预警查询间隔(秒)</span>
+            <input type="number" class="settings-input" id="eewPollInterval" value="1" min="1" max="60">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eewCount">单次预警查询数量</span>
+            <input type="number" class="settings-input" id="eewCount" value="10" min="1" max="100">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eqPollInterval">地震速报查询间隔(秒)</span>
+            <input type="number" class="settings-input" id="eqPollInterval" value="5" min="1" max="60">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eqCount">单次速报查询数量</span>
+            <input type="number" class="settings-input" id="eqCount" value="20" min="1" max="100">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.requestTimeout">查询超时时间(秒)</span>
+            <input type="number" class="settings-input" id="requestTimeout" value="30" min="5" max="120">
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="threshold">
+          <div class="settings-section-title" data-i18n="settings.threshold">预警阈值设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.minLocalIntensity">预警通知最小本地烈度</span>
+            <input type="number" class="settings-input" id="minLocalIntensity" value="0" min="0" max="10" step="0.1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.minEpicenterIntensity">预警通知最小震源烈度</span>
+            <input type="number" class="settings-input" id="minEpicenterIntensity" value="0" min="0" max="10" step="0.1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.minEQIntensity">速报历史通知最小烈度</span>
+            <input type="number" class="settings-input" id="minEQIntensity" value="0" min="0" max="10" step="0.1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.strongShakeIntensity">强震判断烈度</span>
+            <input type="number" class="settings-input" id="strongShakeIntensity" value="5" min="0" max="10" step="0.1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.criticalIntensity">地震预警强提醒烈度</span>
+            <input type="number" class="settings-input" id="criticalIntensity" value="1" min="0" max="10" step="0.1">
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="geo">
+          <div class="settings-section-title" data-i18n="settings.geo">地理位置与计算参数</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.userLatitude">所在地纬度</span>
+            <input type="number" class="settings-input" id="userLatitude" value="30.67" min="-90" max="90" step="0.01">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.userLongitude">所在地经度</span>
+            <input type="number" class="settings-input" id="userLongitude" value="104.07" min="-180" max="180" step="0.01">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.pWaveSpeed">纵波速度(km/s)</span>
+            <input type="number" class="settings-input" id="pWaveSpeed" value="7" min="1" max="20" step="0.1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.sWaveSpeed">横波速度(km/s)</span>
+            <input type="number" class="settings-input" id="sWaveSpeed" value="4" min="1" max="20" step="0.1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.earthRadius">地球平均半径(km)</span>
+            <input type="number" class="settings-input" id="earthRadius" value="6371" min="6000" max="7000">
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="appearance">
+          <div class="settings-section-title" data-i18n="settings.appearance">界面外观</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.titleBarStyle">窗口控制按钮样式</span>
+            <div class="settings-radio-group">
+              <label class="settings-radio-label"><input type="radio" name="titleBarStyle" value="windows"> <span data-i18n="settings.titleBarStyle.windows">Windows 风格</span></label>
+              <label class="settings-radio-label"><input type="radio" name="titleBarStyle" value="mac"> <span data-i18n="settings.titleBarStyle.mac">MacOS 红绿灯</span></label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.floatingNav">悬浮液态玻璃底栏</span>
+            <div class="settings-switch" id="floatingNav" onclick="toggleSwitch('floatingNav')"></div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="sound">
+          <div class="settings-section-title" data-i18n="settings.sound">声音设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundAlert">预警声音</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundAlert" value="" readonly>
+              <button class="settings-button" onclick="testSound('alert')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundCritical">强震预警声音</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundCritical" value="" readonly>
+              <button class="settings-button" onclick="testSound('critical')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundUpdate">预警更新声音</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundUpdate" value="" readonly>
+              <button class="settings-button" onclick="testSound('update')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundSWave">横波到达声音</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundSWave" value="" readonly>
+              <button class="settings-button" onclick="testSound('swave')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundNewRecord">速报历史更新声音</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundNewRecord" value="" readonly>
+              <button class="settings-button" onclick="testSound('newrecord')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundWeakShake">弱摇晃警报音(烈度2)</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundWeakShake" value="" readonly>
+              <button class="settings-button" onclick="testSound('weakshake')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundMidShake">中等摇晃警报音(烈度3)</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundMidShake" value="" readonly>
+              <button class="settings-button" onclick="testSound('midshake')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundStrongShake">强烈摇晃警报音(烈度5)</span>
+            <div class="sound-test-row">
+              <input type="text" class="settings-input" id="soundStrongShake" value="" readonly>
+              <button class="settings-button" onclick="testSound('strongshake')" data-i18n="settings.test">测试</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="ai">
+          <div class="settings-section-title" data-i18n="settings.ai">AI设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.aiDomain">AI API地址</span>
+            <input type="text" class="settings-input" id="aiDomain" data-i18n-placeholder="settings.aiDomain.placeholder" placeholder="例如: https://api.deepseek.com/v1">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.aiFullUrl">完整URL</span>
+            <div class="settings-switch" id="aiFullUrl" onclick="toggleSwitch('aiFullUrl')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.aiApiKey">AI API密钥</span>
+            <input type="password" class="settings-input" id="aiApiKey" data-i18n-placeholder="settings.aiApiKey.placeholder" placeholder="请输入API密钥">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.aiModel">模型名称</span>
+            <input type="text" class="settings-input" id="aiModel" data-i18n-placeholder="settings.aiModel.placeholder" placeholder="例如: deepseek-chat">
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="system">
+          <div class="settings-section-title" data-i18n="settings.system">系统设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.language">语言 / Language</span>
+            <select class="settings-select" id="languageSelect" onchange="changeLanguage(this.value)">
+              <option value="zh-CN">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.autoStart">开机自启</span>
+            <div class="settings-switch" id="autoStart" onclick="toggleSwitch('autoStart')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.soundEnabled">声音总开关</span>
+            <div class="settings-switch" id="soundEnabled" onclick="toggleSwitch('soundEnabled')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.enableLogging">输出日志到QLOG</span>
+            <div class="settings-switch" id="enableLogging" onclick="toggleSwitch('enableLogging')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.minimizeToTray">最小化到托盘</span>
+            <div class="settings-switch" id="minimizeToTray" onclick="toggleSwitch('minimizeToTray')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.eewTest">预警测试</span>
+            <button class="settings-button" onclick="showEEWTestModal()" data-i18n="settings.testEEW">测试预警</button>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.clearEEW">清除预警列表</span>
+            <button class="settings-button danger" onclick="clearEEWHistory()" data-i18n="settings.clearList">清除列表</button>
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="system">
+          <div style="display: flex; gap: 12px;">
+            <button class="settings-button" onclick="saveSettings()" data-i18n="settings.save">保存设置</button>
+            <button class="settings-button danger" onclick="resetSettings()" data-i18n="settings.reset">恢复默认</button>
+            <button class="settings-button" onclick="showAbout()" data-i18n="settings.about">关于</button>
+          </div>
+        </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-push">
+      <div class="settings-container">
+        <div class="settings-section">
+          <div class="settings-section-title" data-i18n="push.title">推送链接</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="push.mode">推送模式</span>
+            <div class="settings-radio-group">
+              <label class="settings-radio-label"><input type="radio" name="pushMode" value="simple" checked onchange="switchPushMode('simple')"> <span data-i18n="push.mode.simple">简单模式（Bark）</span></label>
+              <label class="settings-radio-label"><input type="radio" name="pushMode" value="pro" onchange="switchPushMode('pro')"> <span data-i18n="push.mode.pro">专业模式（自定义JSON）</span></label>
+            </div>
+          </div>
+
+          <div id="pushSimplePanel">
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.barkServer">Bark 服务器地址</span>
+              <input type="text" class="settings-input" id="barkUrl" placeholder="https://api.day.app/push">
+            </div>
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.deviceKey">Bark device_key</span>
+              <input type="text" class="settings-input" id="barkDeviceKey" data-i18n-placeholder="push.deviceKey.placeholder" placeholder="你的Key（可在 Bark APP 获取）">
+            </div>
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.preview">推送内容预览（固定JSON模板）</span>
+              <pre class="push-preview push-preview-json">{
+  "device_key": "你的Key「可在BarkAPP获取」",
+  "title": "【LaQuake】",
+  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",
+  "level": "critical",
+  "sound": "alarm",
+  "volume": 10
+}</pre>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.barkHint">说明</span>
+              <div class="push-hint" data-i18n="push.barkHint.text">服务器地址默认官方 https://api.day.app/push，自建服务器填写对应 /push 地址；device_key 在 Bark APP 首页复制。预警触发时将以 POST JSON 方式发送上方固定模板，关键字段自动替换。</div>
+            </div>
+          </div>
+
+          <div id="pushProPanel" style="display: none;">
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.pushUrl">推送链接（POST JSON）</span>
+              <input type="text" class="settings-input" id="pushUrl" placeholder="https://api.day.app/push">
+            </div>
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.jsonTemplate">JSON 内容</span>
+              <textarea class="settings-input push-textarea" id="pushJsonTemplate" rows="8" spellcheck="false"></textarea>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.insertVar">点击插入变量</span>
+              <div class="push-vars">
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{TITLE}')">{TITLE}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{BODY}')">{BODY}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{FZSK}')">{FZSK}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{ZZMC}')">{ZZMC}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{ZHENJI}')">{ZHENJI}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{LIEDU}')">{LIEDU}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{YGLD}')">{YGLD}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{ZZJ}')">{ZZJ}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{TIME}')">{TIME}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{YHCD}')">{YHCD}</button>
+                <button type="button" class="push-var-chip" onclick="insertPushVar('{BXJY}')">{BXJY}</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="push.varMeaning">变量说明</span>
+              <div class="push-hint" data-i18n="push.varMeaning.text">{TITLE}标题 {BODY}固定正文 {FZSK}发震时刻 {ZZMC}震中名称 {ZHENJI}震级 {LIEDU}震中烈度 {YGLD}预估本地烈度 {ZZJ}震中距km {TIME}横波到达秒数 {YHCD}摇晃程度 {BXJY}避险建议</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div style="display: flex; gap: 12px;">
+              <button class="settings-button" onclick="savePushSettings()" data-i18n="push.save">保存</button>
+              <button class="settings-button" onclick="testPushSettings()" data-i18n="push.test">发送测试推送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="about-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 data-i18n="about.title">关于 LaQuake</h3>
+        <button class="modal-close" onclick="closeAbout()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="about-item">
+          <span class="about-label" data-i18n="about.appName">应用名称</span>
+          <span class="about-value">LaQuake</span>
+        </div>
+        <div class="about-item">
+          <span class="about-label" data-i18n="about.version">版本</span>
+          <span class="about-value">V1.1</span>
+        </div>
+        <div class="about-item">
+          <span class="about-label" data-i18n="about.author">作者</span>
+          <span class="about-value">Latte0903</span>
+        </div>
+        <div class="about-item">
+          <span class="about-label" data-i18n="about.dataSource">数据源</span>
+          <div class="about-value">
+            <span class="about-link" onclick="window.electronAPI.openExternal('https://wolfx.jp')">Wolfx</span>
+            <span style="margin: 0 8px;">|</span>
+            <span class="about-link" onclick="window.electronAPI.openExternal('https://www.cenc.ac.cn')">CENC</span>
+          </div>
+        </div>
+        <div class="about-item">
+          <span class="about-label" data-i18n="about.feedback">问题反馈</span>
+          <span class="about-value">
+            <span class="about-link" onclick="window.electronAPI.openExternal('mailto:Support_LaQuake@icloud.com')">Support_LaQuake@icloud.com</span>
+          </span>
+        </div>
+        <div class="about-item">
+          <span class="about-label"></span>
+          <span class="about-value">
+            <span class="about-link" onclick="closeAbout(); showDisclaimer()" style="color: #f59e0b;" data-i18n="about.disclaimer">⚠️ 严正声明与免责条款 (必读)</span>
+          </span>
+        </div>
+        <div style="margin-top: 16px; text-align: center;">
+          <button class="settings-button" onclick="window.electronAPI.openExternal('https://github.com/Latte0903/LaQuake')" data-i18n="about.latest">前往获取最新版本</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="disclaimer-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 650px; max-height: 80vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3 data-i18n="disclaimer.title">⚠️ 严正声明与免责条款 (必读)</h3>
+        <button class="modal-close" onclick="closeDisclaimer()">×</button>
+      </div>
+      <div class="modal-body" style="font-size: 13px; line-height: 1.8; color: #d0d0d0;">
+        <p data-i18n="disclaimer.item1" style="color: #f59e0b; font-weight: bold;">在使用本软件或查看本仓库源代码之前，请务必仔细阅读并同意以下条款。使用本软件即代表您完全接受以下所有内容：</p>
+
+        <h4 data-i18n="disclaimer.item2" style="color: #fff; margin-top: 16px;">知情版本同意（Alpha版）：</h4>
+        <p data-i18n="disclaimer.item3">请知情，本软件目前处于Alpha早期测试版本。软件可能存在不稳定、功能不完善、测试崩溃或数据展示异常等情况。开发者不对因软件缺陷、运行中断而造成的任何直接或间接后果承担责任。</p>
+
+        <h4 data-i18n="disclaimer.item4" style="color: #fff; margin-top: 16px;">非盈利与拒绝转让声明：</h4>
+        <p data-i18n="disclaimer.item5">本软件为免费的个人学习与研究项目，不接受任何形式的付费、赞助、会员或完全转让项目。任何渠道出现的收费、收费代编译或要求打赏的版本均属于欺诈行为，请勿上当受骗。</p>
+
+        <h4 data-i18n="disclaimer.item6" style="color: #fff; margin-top: 16px;">版权与开源协议限制：</h4>
+        <p data-i18n="disclaimer.item7">本项目不适用任何开源协议。公开的源代码仅供个人私下学习、代码交流使用。<br>严禁任何形式的商业用途、二次分配、分配出售或对源代码进行任何形式的修改与衍生。</p>
+
+        <h4 data-i18n="disclaimer.item8" style="color: #fff; margin-top: 16px;">传播与直播限制：</h4>
+        <p data-i18n="disclaimer.item9">严禁在任何公众平台（如Bilibili、抖音、Twitch、斗鱼等）直播本软件的任何界面。<br>严禁截图、录屏或其他形式在社交媒体广泛传播软件内的预警信息。</p>
+
+        <h4 data-i18n="disclaimer.item10" style="color: #fff; margin-top: 16px;">免责声明（数据准确性）：</h4>
+        <p data-i18n="disclaimer.item11">公开API提供的数据内容可能存在延迟、失误或错误。<br>软件开发者不对软件内由 Wolfx API 提供的任何内容的准确性负任何法律责任。请一切以当地官方地震管理部门发布的信息为准。</p>
+
+        <h4 data-i18n="disclaimer.item12" style="color: #fff; margin-top: 16px;">免责声明（模拟功能）：</h4>
+        <p data-i18n="disclaimer.item13">软件内部的"预警模拟"功能仅供个人/内部防震减灾提前演练与练习使用。<br>任何因误用而导致的社会影响或法律后果，均由用户承担全部责任，与开发者无关。</p>
+
+        <h4 data-i18n="disclaimer.item14" style="color: #fff; margin-top: 16px;">年龄与使用资格：</h4>
+        <p data-i18n="disclaimer.item15">使用此软件之前，您必须已达到您所在国家或地区的法定年龄。未成年人请在监护人监护下了解震防减灾知识，不得单独操作本软件。</p>
+
+        <h4 data-i18n="disclaimer.item16" style="color: #fff; margin-top: 16px;">法律管辖：</h4>
+        <p data-i18n="disclaimer.item17">因使用本软件与源代码产生的任何法律争议，必须在开发者所在的中华人民共和国大陆地区法院进行解决。</p>
+
+        <p data-i18n="disclaimer.eewcn" style="margin-top: 16px; color: #9ca3af;">特别说明：本软件部分设计思路与设置项参考了EEWCN，感谢，作者主页：<span class="about-link" onclick="window.electronAPI.openExternal('https://github.com/lxfly2000')">lxfly2000</span></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-toast" class="app-toast" role="alert"></div>
+
+  <div id="app-confirm" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 380px;">
+      <div class="modal-body" style="padding: 24px;">
+        <div id="app-confirm-text" style="font-size: 14px; line-height: 1.7; color: #e5e7eb; margin-bottom: 20px;"></div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button class="settings-button" id="app-confirm-cancel">取消</button>
+          <button class="settings-button danger" id="app-confirm-ok">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-bar">
+    <div class="nav-item active" onclick="switchPage('eew')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      </svg>
+      <span data-i18n="nav.eew">地震预警</span>
+    </div>
+    <div class="nav-item" onclick="switchPage('eq')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 20V10M8 20V4M3 20h18M3 4h18"/>
+      </svg>
+      <span data-i18n="nav.eq">地震速报</span>
+    </div>
+    <div class="nav-item" onclick="switchPage('push')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      <span data-i18n="nav.push">推送链接</span>
+    </div>
+    <div class="nav-item" onclick="switchPage('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+      <span data-i18n="nav.settings">设置</span>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="eewTestModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 data-i18n="test.modal.title">预警测试</h3>
+        <button class="modal-close" onclick="closeEEWTestModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label data-i18n="test.reportTime">报告时间 (ReportTime)</label>
+          <input type="datetime-local" class="modal-input" id="testReportTime">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.reportNum">报告编号 (ReportNum)</label>
+          <input type="number" class="modal-input" id="testReportNum" value="1" min="1">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.originTime">发震时间 (OriginTime)</label>
+          <input type="datetime-local" class="modal-input" id="testOriginTime">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.hypoCenter">震中位置 (HypoCenter)</label>
+          <input type="text" class="modal-input" id="testHypoCenter" data-i18n-placeholder="test.hypoCenter.placeholder" placeholder="如：四川省成都市">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.latitude">纬度 (Latitude)</label>
+          <input type="number" class="modal-input" id="testLatitude" value="30.67" min="-90" max="90" step="0.001">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.longitude">经度 (Longitude)</label>
+          <input type="number" class="modal-input" id="testLongitude" value="104.07" min="-180" max="180" step="0.001">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.magnitude">震级 (Magnitude)</label>
+          <input type="number" class="modal-input" id="testMagnitude" value="5.0" min="0" max="10" step="0.1">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.depth">深度 (Depth)</label>
+          <input type="number" class="modal-input" id="testDepth" value="10" min="0" max="1000">
+        </div>
+        <div class="form-row">
+          <label data-i18n="test.maxIntensity">最大烈度 (MaxIntensity)</label>
+          <input type="number" class="modal-input" id="testMaxIntensity" value="6" min="0" max="12">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button cancel" onclick="closeEEWTestModal()" data-i18n="test.cancel">取消</button>
+        <button class="modal-button confirm" onclick="sendEEWTest()" data-i18n="test.send">发送测试预警</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
