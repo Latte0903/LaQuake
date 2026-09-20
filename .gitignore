@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-installer/
+installer/payload/
+installer/.payload-old-*/
+*.log
+.DS_Store

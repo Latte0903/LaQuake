@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>LaQuake 卸载向导</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0d1b2a;
+      --panel: #111f33;
+      --field: #0b1626;
+      --line: rgba(148, 163, 184, 0.14);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-dark: #2563eb;
+      --danger: #e11d48;
+      --danger-dark: #be123c;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      user-select: none;
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body { display: flex; flex-direction: column; }
+
+    .titlebar {
+      height: 42px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      -webkit-app-region: drag;
+      padding-left: 18px;
+    }
+
+    .titlebar-title { font-size: 13px; color: var(--muted); letter-spacing: .5px; }
+    .titlebar-actions { -webkit-app-region: no-drag; display: flex; height: 100%; }
+
+    .tb-btn {
+      width: 46px;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .tb-btn:hover { background: rgba(148, 163, 184, 0.14); color: var(--text); }
+    .tb-btn.close:hover { background: #e11d48; color: #fff; }
+
+    .content { flex: 1; position: relative; min-height: 0; }
+
+    .page {
+      position: absolute;
+      inset: 0;
+      padding: 20px 40px 14px;
+      display: none;
+      flex-direction: column;
+    }
+    .page.active { display: flex; animation: fade .22s ease; }
+
+    @keyframes fade {
+      from { opacity: 0; transform: translateX(10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin: 2px 0 14px;
+    }
+    .brand img { width: 34px; height: 34px; border-radius: 9px; }
+    .brand b { font-size: 19px; font-weight: 600; }
+    .brand small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; text-align: center; margin-top: 2px; }
+
+    .confirm-icon {
+      width: 70px; height: 70px; margin: 0 auto 14px;
+      border-radius: 50%;
+      background: rgba(225, 29, 72, 0.14);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 35px;
+      flex: none;
+    }
+
+    h1 { font-size: 20px; font-weight: 600; text-align: center; }
+    .desc { font-size: 13px; color: var(--muted); line-height: 1.7; text-align: center; margin-top: 8px; }
+
+    .info-box {
+      margin-top: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.9;
+    }
+    .info-box .k { color: #cbd5e1; }
+    .info-box .path {
+      color: #93c5fd;
+      word-break: break-all;
+      user-select: text;
+    }
+
+    .check-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--line);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .check-line input { width: 16px; height: 16px; accent-color: var(--danger); }
+    .check-line small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+
+    .progress-wrap { margin: auto; width: 380px; text-align: center; }
+    .progress-ring { font-size: 50px; margin-bottom: 16px; }
+    .progress-status { font-size: 15px; margin-bottom: 22px; color: #cbd5e1; }
+    .progress-bar { height: 8px; border-radius: 4px; background: rgba(148, 163, 184, 0.18); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #e11d48, #fb7185); transition: width .25s ease; }
+    .progress-detail { font-size: 11px; color: var(--muted); margin-top: 12px; min-height: 16px; }
+    .progress-error {
+      margin-top: 18px;
+      background: rgba(225, 29, 72, 0.12);
+      border: 1px solid rgba(225, 29, 72, 0.45);
+      color: #fda4af;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 12.5px;
+      line-height: 1.6;
+      display: none;
+    }
+
+    .finish-icon {
+      width: 88px; height: 88px; margin: 6px auto 20px;
+      border-radius: 50%;
+      background: rgba(34, 197, 94, 0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 44px;
+    }
+
+    .footer {
+      height: 64px;
+      flex: none;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 0 36px;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 9px 24px;
+      border-radius: 10px;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .15s ease;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: var(--danger-dark); }
+    .btn-secondary { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+    .btn-secondary:hover:not(:disabled) { background: rgba(148, 163, 184, 0.26); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .modal-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 10, 18, 0.62);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      -webkit-app-region: no-drag;
+    }
+    .modal-mask.show { display: flex; animation: fade .18s ease; }
+    .modal {
+      width: 372px;
+      background: var(--panel);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 14px;
+      padding: 22px 24px 18px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+      text-align: center;
+    }
+    .modal-icon { font-size: 36px; margin-bottom: 10px; }
+    .modal-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+    .modal-text {
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.75;
+      text-align: left;
+      background: rgba(234, 179, 8, 0.1);
+      border: 1px solid rgba(234, 179, 8, 0.38);
+      border-radius: 10px;
+      padding: 11px 13px;
+      margin-bottom: 18px;
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="titlebar-title" id="titleText">LaQuake 卸载向导</div>
+    <div class="titlebar-actions">
+      <button class="tb-btn" id="tbMin">—</button>
+      <button class="tb-btn close" id="tbClose">✕</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <section class="page active" data-page="confirm">
+      <div class="brand">
+        <img id="brandingImg" alt="">
+        <div>
+          <b>LaQuake</b>
+          <small id="brandVersion"></small>
+        </div>
+      </div>
+      <div class="confirm-icon">🗑️</div>
+      <h1 id="confirmTitle">确定要卸载 LaQuake 吗？</h1>
+      <p class="desc" id="confirmDesc">卸载将移除程序文件、桌面与开始菜单快捷方式，以及注册表中的安装信息。</p>
+      <div class="info-box">
+        <div><span class="k" id="lblDir">安装位置：</span><span class="path" id="infoDir"></span></div>
+        <div><span class="k" id="lblData">用户数据：</span><span id="infoData"></span></div>
+      </div>
+      <label class="check-line">
+        <input type="checkbox" id="chkPurge">
+        <span>
+          <span id="purgeText">同时删除我的设置与历史记录</span>
+          <small id="purgeHint">将一并清除 %APPDATA%\LaQuake，此操作不可恢复</small>
+        </span>
+      </label>
+    </section>
+
+    <section class="page" data-page="progress">
+      <div class="progress-wrap">
+        <div class="progress-ring" id="progressRing">⚙️</div>
+        <div class="progress-status" id="progressStatus">正在准备卸载…</div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-detail" id="progressDetail"></div>
+        <div class="progress-error" id="progressError"></div>
+      </div>
+    </section>
+
+    <section class="page" data-page="finish">
+      <div class="finish-icon">✓</div>
+      <h1 id="finishTitle">LaQuake 已卸载</h1>
+      <p class="desc" id="finishDesc">点击「完成」关闭向导，安装目录中的剩余文件将被自动清除。</p>
+    </section>
+
+  </div>
+
+  <div class="footer" id="footer">
+    <button class="btn btn-secondary" id="btnCancel">取消</button>
+    <button class="btn btn-danger" id="btnAction">卸载</button>
+  </div>
+
+  <div class="modal-mask" id="avModal">
+    <div class="modal">
+      <div class="modal-icon">🛡️</div>
+      <div class="modal-title" id="avTitle">卸载前请先关闭杀毒软件</div>
+      <div class="modal-text" id="avText">卸载过程会结束运行中的程序、删除程序文件与快捷方式，360安全卫士、电脑管家等杀毒软件可能拦截卸载操作。建议暂时退出杀毒软件或关闭实时防护，卸载完成后再重新开启。</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="avCancel">取消</button>
+        <button class="btn btn-danger" id="avContinue">我已关闭，继续卸载</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="uninstaller.js"></script>
+</body>
+</html>

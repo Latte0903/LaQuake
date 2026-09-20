@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>LaQuake 安装向导</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0d1b2a;
+      --panel: #111f33;
+      --field: #0b1626;
+      --line: rgba(148, 163, 184, 0.14);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-dark: #2563eb;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      user-select: none;
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body { display: flex; flex-direction: column; }
+
+    .titlebar {
+      height: 42px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      -webkit-app-region: drag;
+      padding-left: 18px;
+    }
+
+    .titlebar-title { font-size: 13px; color: var(--muted); letter-spacing: .5px; }
+
+    .titlebar-actions { -webkit-app-region: no-drag; display: flex; height: 100%; }
+
+    .tb-btn {
+      width: 46px;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .tb-btn:hover { background: rgba(148, 163, 184, 0.14); color: var(--text); }
+    .tb-btn.close:hover { background: #e11d48; color: #fff; }
+
+    .shell { flex: 1; display: flex; min-height: 0; }
+
+    .rail {
+      width: 208px;
+      flex: none;
+      padding: 14px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .rail-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px 16px;
+    }
+
+    .rail-brand img { width: 26px; height: 26px; border-radius: 7px; }
+    .rail-brand span { font-size: 15px; font-weight: 600; }
+    .rail-brand small { display: block; font-size: 10px; color: var(--muted); font-weight: 400; }
+
+    .rail-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 9px;
+      font-size: 13px;
+      color: var(--muted);
+      transition: all .15s ease;
+    }
+
+    .rail-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; flex: none; }
+
+    .rail-item.active { background: rgba(59, 130, 246, 0.16); color: #bfdbfe; }
+    .rail-item.active .rail-dot { background: var(--accent); box-shadow: 0 0 8px rgba(59, 130, 246, .8); }
+    .rail-item.done { color: #cbd5e1; }
+    .rail-item.done .rail-dot { background: #22c55e; }
+
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    .content { flex: 1; position: relative; min-height: 0; }
+
+    .page {
+      position: absolute;
+      inset: 0;
+      padding: 26px 36px 18px;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+    }
+
+    .page.active { display: flex; animation: fade .22s ease; }
+
+    body.upgrade-mode .rail { display: none; }
+    body.upgrade-mode .page { padding: 26px 48px 18px; }
+    .upgrade-card { margin: auto; text-align: center; max-width: 470px; }
+    .upgrade-card .big-icon { font-size: 72px; margin-bottom: 20px; }
+    .upgrade-card h1 { font-size: 25px; margin-bottom: 12px; }
+    .upgrade-card p { font-size: 14px; color: var(--muted); line-height: 1.8; }
+    .upgrade-ver {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin: 18px 0 6px;
+      font-size: 15px;
+      color: #cbd5e1;
+    }
+    .upgrade-ver .ver {
+      background: rgba(59, 130, 246, 0.16);
+      color: #bfdbfe;
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-weight: 600;
+    }
+    .upgrade-dir {
+      margin-top: 16px;
+      font-size: 12px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 14px;
+      word-break: break-all;
+      user-select: text;
+    }
+
+    @keyframes fade {
+      from { opacity: 0; transform: translateX(10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .page-head { margin-bottom: 14px; }
+    .page-title { font-size: 22px; font-weight: 600; }
+    .page-desc { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+
+    .center { margin: auto; text-align: center; max-width: 460px; }
+    .big-icon { font-size: 76px; margin-bottom: 22px; }
+    .center h1 { font-size: 27px; margin-bottom: 12px; }
+    .center p { font-size: 15px; color: var(--muted); line-height: 1.7; }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+    }
+
+    .row-label { font-size: 14px; color: #cbd5e1; flex: none; }
+
+    .field {
+      background: var(--field);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 9px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      width: 240px;
+      outline: none;
+      user-select: text;
+      transition: border-color .15s ease;
+      font-family: inherit;
+    }
+
+    .field:focus { border-color: var(--accent); }
+
+    textarea.field { width: 100%; resize: vertical; min-height: 150px; font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 1.6; }
+
+    select.field { appearance: none; cursor: pointer; padding-right: 28px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+
+    .radios { display: flex; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+    .radios label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #cbd5e1; cursor: pointer; }
+    .radios input { accent-color: var(--accent); width: 14px; height: 14px; }
+
+    .switch { width: 42px; height: 24px; border-radius: 12px; background: #475569; position: relative; cursor: pointer; transition: background .2s ease; flex: none; }
+    .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .2s ease; }
+    .switch.on { background: var(--accent); }
+    .switch.on::after { left: 21px; }
+
+    .row-actions { display: flex; align-items: center; gap: 10px; }
+    .mini-btn {
+      padding: 7px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(148, 163, 184, 0.1);
+      color: #cbd5e1;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .mini-btn:hover { background: rgba(148, 163, 184, 0.2); }
+    .locate-status { font-size: 12px; color: var(--muted); max-width: 230px; }
+
+    .pick-list { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+    .pick {
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid transparent;
+      border-radius: 14px;
+      padding: 20px 22px;
+      cursor: pointer;
+      transition: all .18s ease;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      text-align: left;
+    }
+    .pick:hover { background: rgba(255, 255, 255, 0.09); }
+    .pick.selected { border-color: var(--accent); background: rgba(59, 130, 246, 0.18); }
+    .pick-icon { font-size: 30px; flex: none; }
+    .pick-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .pick-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    .lang-list { flex-direction: row; flex-wrap: wrap; }
+    .lang-card { width: 200px; flex-direction: column; gap: 10px; text-align: center; padding: 28px 20px; }
+    .lang-card .pick-icon { font-size: 34px; }
+
+    .warn {
+      margin-top: 16px;
+      background: rgba(234, 179, 8, 0.14);
+      border: 1px solid rgba(234, 179, 8, 0.45);
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: #fbbf24;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .agree-box {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px 22px;
+      flex: 1;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.75;
+      color: rgba(226, 232, 240, 0.85);
+      user-select: text;
+      margin-top: 14px;
+    }
+    .agree-box h3 { color: #60a5fa; font-size: 14px; margin: 14px 0 6px; }
+    .agree-box h3:first-child { margin-top: 0; }
+
+    .check-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 0;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .check-line input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+    .dir-row { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+    .dir-row .field { flex: 1; width: auto; }
+    .meta { display: flex; gap: 20px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+
+    .push-vars { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-start; margin-top: 8px; }
+    .var-chip {
+      padding: 5px 10px;
+      font-size: 11px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(148, 163, 184, 0.08);
+      color: #93c5fd;
+      cursor: pointer;
+    }
+    .var-chip:hover { background: rgba(59, 130, 246, 0.2); }
+    .push-panel { margin-top: 6px; }
+
+    .progress-wrap { margin: auto; width: 440px; text-align: center; }
+    .progress-ring { font-size: 54px; margin-bottom: 18px; }
+    .progress-percent { font-size: 38px; font-weight: 700; margin-bottom: 6px; }
+    .progress-status { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+    .progress-bar { height: 8px; border-radius: 4px; background: rgba(148, 163, 184, 0.18); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width .25s ease; }
+    .progress-file { font-size: 11px; color: var(--muted); margin-top: 12px; word-break: break-all; line-height: 1.5; }
+    .progress-error {
+      margin-top: 22px;
+      background: rgba(225, 29, 72, 0.12);
+      border: 1px solid rgba(225, 29, 72, 0.45);
+      color: #fda4af;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      display: none;
+    }
+
+    .finish-icon {
+      width: 92px; height: 92px; margin: 0 auto 22px;
+      border-radius: 50%;
+      background: rgba(34, 197, 94, 0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 46px;
+    }
+
+    .footer {
+      height: 66px;
+      flex: none;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 36px;
+      gap: 14px;
+    }
+
+    .footer-info { font-size: 12px; color: var(--muted); }
+
+    .footer-actions { display: flex; gap: 12px; }
+
+    .btn {
+      padding: 10px 24px;
+      border-radius: 10px;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .15s ease;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
+    .btn-secondary { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+    .btn-secondary:hover:not(:disabled) { background: rgba(148, 163, 184, 0.26); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .modal-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 10, 18, 0.62);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      -webkit-app-region: no-drag;
+    }
+    .modal-mask.show { display: flex; animation: fade .18s ease; }
+    .modal {
+      width: 386px;
+      background: var(--panel);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 14px;
+      padding: 24px 26px 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+      text-align: center;
+    }
+    .modal-icon { font-size: 38px; margin-bottom: 12px; }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
+    .modal-text {
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.75;
+      text-align: left;
+      background: rgba(234, 179, 8, 0.1);
+      border: 1px solid rgba(234, 179, 8, 0.38);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 20px;
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="titlebar-title" data-i18n="installer.title">LaQuake 安装向导</div>
+    <div class="titlebar-actions">
+      <button class="tb-btn" id="tbMin" title="Minimize">—</button>
+      <button class="tb-btn close" id="tbClose" title="Close">✕</button>
+    </div>
+  </div>
+
+  <div class="shell">
+    <div class="rail">
+      <div class="rail-brand">
+        <img id="brandingImg" alt="">
+        <div>
+          <span>LaQuake</span>
+          <small id="railVersion">v1.2.0</small>
+        </div>
+      </div>
+      <div class="rail-item" data-rail="language"><span class="rail-dot"></span><span data-i18n="installer.rail.language">语言设置</span></div>
+      <div class="rail-item" data-rail="mode"><span class="rail-dot"></span><span data-i18n="installer.rail.mode">使用模式</span></div>
+      <div class="rail-item" data-rail="agreement"><span class="rail-dot"></span><span data-i18n="installer.rail.agreement">协议确认</span></div>
+      <div class="rail-item" data-rail="dataSource"><span class="rail-dot"></span><span data-i18n="installer.rail.dataSource">数据源</span></div>
+      <div class="rail-item" data-rail="geo"><span class="rail-dot"></span><span data-i18n="installer.rail.geo">地理与计算</span></div>
+      <div class="rail-item" data-rail="appearance"><span class="rail-dot"></span><span data-i18n="installer.rail.appearance">界面外观</span></div>
+      <div class="rail-item" data-rail="ai"><span class="rail-dot"></span><span data-i18n="installer.rail.ai">AI 设置</span></div>
+      <div class="rail-item" data-rail="push"><span class="rail-dot"></span><span data-i18n="installer.rail.push">推送设置</span></div>
+      <div class="rail-item" data-rail="options"><span class="rail-dot"></span><span data-i18n="installer.rail.options">安装选项</span></div>
+    </div>
+
+    <div class="main">
+      <div class="content">
+
+        <section class="page active" data-page="welcome">
+          <div class="center">
+            <div class="big-icon">🌍</div>
+            <h1 data-i18n="activation.welcome">欢迎使用 LaQuake</h1>
+            <p data-i18n="activation.welcome.desc">地震预警接收与地震速报信息查询软件</p>
+          </div>
+        </section>
+
+        <section class="page" data-page="upgrade">
+          <div class="upgrade-card">
+            <div class="big-icon">⬆️</div>
+            <h1 id="upgradeTitle" data-i18n="installer.upgrade.title">检测到已安装旧版本</h1>
+            <p id="upgradeDesc" data-i18n="installer.upgrade.desc">将直接升级至最新版本，安装目录、全部设置与历史记录保持不变。</p>
+            <div class="upgrade-ver">
+              <span class="ver" id="upgradeOldVer"></span>
+              <span>→</span>
+              <span class="ver" id="upgradeNewVer"></span>
+            </div>
+            <div class="warn" id="upgradeNote" data-i18n="installer.upgrade.note">安装过程会自动关闭正在运行的 LaQuake，请先保存手头工作。</div>
+            <div class="upgrade-dir"><span data-i18n="installer.upgrade.dir">安装目录：</span><span id="upgradeDir"></span></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="language">
+          <div class="page-head">
+            <div class="page-title" data-i18n="installer.language.title">语言设置</div>
+            <div class="page-desc" data-i18n="installer.language.desc">请选择软件使用的界面语言，安装完成后仍可在系统设置中随时更改</div>
+          </div>
+          <div class="pick-list lang-list">
+            <div class="pick lang-card" data-lang="zh-CN" onclick="pickLanguage('zh-CN')">
+              <div class="pick-icon">🇨🇳</div>
+              <div class="pick-title" data-i18n="installer.language.zh">简体中文</div>
+            </div>
+            <div class="pick lang-card" data-lang="en" onclick="pickLanguage('en')">
+              <div class="pick-icon">🔤</div>
+              <div class="pick-title" data-i18n="installer.language.en">English</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="mode">
+          <div class="page-head">
+            <div class="page-title" data-i18n="activation.mode">选择使用模式</div>
+            <div class="page-desc" data-i18n="activation.mode.desc">请选择适合您的使用模式</div>
+          </div>
+          <div class="pick-list">
+            <div class="pick" data-mode="eewcn" onclick="pickMode('eewcn')">
+              <div class="pick-icon">🔗</div>
+              <div>
+                <div class="pick-title" data-i18n="activation.mode.eewcn">EEW CN兼容模式</div>
+                <div class="pick-desc" data-i18n="activation.mode.eewcn.desc">共享EEWCN的媒体文件，节省存储空间</div>
+              </div>
+            </div>
+            <div class="pick" data-mode="standalone" onclick="pickMode('standalone')">
+              <div class="pick-icon">🚀</div>
+              <div>
+                <div class="pick-title" data-i18n="activation.mode.standalone">独立使用模式</div>
+                <div class="pick-desc" data-i18n="activation.mode.standalone.desc">完全独立运行，不依赖其他软件</div>
+              </div>
+            </div>
+          </div>
+          <div class="warn" id="modeWarn" data-i18n="activation.mode.warning">⚠️ 请确保EEWCN已安装于 C:\Program Files\eewcn</div>
+        </section>
+
+        <section class="page" data-page="agreement">
+          <div class="page-head">
+            <div class="page-title" data-i18n="activation.agreement">用户协议与免责声明</div>
+          </div>
+          <div class="agree-box">
+            <h3 data-i18n="activation.agreement.title1">用户协议</h3>
+            <p data-i18n="activation.agreement.item1">1. 本软件仅供个人学习和研究使用，严禁用于商业用途。</p>
+            <p data-i18n="activation.agreement.item2">2. 用户在使用本软件前，应仔细阅读并理解本协议的全部内容。</p>
+            <p data-i18n="activation.agreement.item3">3. 用户应遵守国家法律法规，不得利用本软件从事违法活动。</p>
+            <p data-i18n="activation.agreement.item4">4. 用户应自行承担使用本软件所产生的一切风险和后果。</p>
+            <h3 data-i18n="activation.agreement.title2">免责声明</h3>
+            <p data-i18n="activation.agreement.item5">1. 本软件提供的地震预警信息仅供参考，不构成任何决策建议。</p>
+            <p data-i18n="activation.agreement.item6">2. 地震预警信息可能存在延迟或误差，用户不应完全依赖。</p>
+            <p data-i18n="activation.agreement.item7">3. 开发者不对因使用本软件而导致的任何损失承担责任。</p>
+            <p data-i18n="activation.agreement.item8">4. 本软件不保证预警信息的准确性、完整性和及时性。</p>
+          </div>
+          <label class="check-line">
+            <input type="checkbox" id="agreeCheck" onchange="model.agreed = this.checked; updateFooter();">
+            <span data-i18n="activation.agree.check">我已阅读并同意上述协议</span>
+          </label>
+        </section>
+
+        <section class="page" data-page="dataSource">
+          <div class="page-head">
+            <div class="page-title" data-i18n="settings.dataSource">数据源设置</div>
+            <div class="page-desc" data-i18n="installer.dataSource.desc">选择地震预警与速报信息的来源</div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.eewSource">预警信息数据源</span>
+            <div class="radios">
+              <label><input type="radio" name="eewSource" value="cenc" onchange="model.eewSource='cenc'"> <span data-i18n="settings.eewSource.cenc">中国地震台网</span></label>
+              <label><input type="radio" name="eewSource" value="sc" onchange="model.eewSource='sc'"> <span data-i18n="settings.eewSource.sc">四川省地震局</span></label>
+              <label><input type="radio" name="eewSource" value="fj" onchange="model.eewSource='fj'"> <span data-i18n="settings.eewSource.fj">福建省地震局</span></label>
+              <label><input type="radio" name="eewSource" value="cq" onchange="model.eewSource='cq'"> <span data-i18n="settings.eewSource.cq">重庆市地震局</span></label>
+              <label><input type="radio" name="eewSource" value="jma" onchange="model.eewSource='jma'"> <span data-i18n="settings.eewSource.jma">日本气象厅</span></label>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.eewCWA">额外接收中央气象署数据</span>
+            <div class="switch" id="swEewCWA" onclick="toggleModel('eewCWA', this)"></div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.eqSource">地震速报历史数据源</span>
+            <select class="field" id="selEqSource" onchange="model.eqSource=this.value">
+              <option value="cenc" data-i18n="settings.eqSource.cenc">中国地震台网</option>
+              <option value="jma" data-i18n="settings.eqSource.jma">日本气象厅</option>
+            </select>
+          </div>
+        </section>
+
+        <section class="page" data-page="geo">
+          <div class="page-head">
+            <div class="page-title" data-i18n="settings.geo">地理位置与计算参数</div>
+            <div class="page-desc" data-i18n="installer.geo.desc">地理位置用于计算震中距、本地预估烈度与横波到达时间</div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.autoLocate">自动获取定位（基于网络IP）</span>
+            <div class="row-actions">
+              <div class="switch" id="swAutoLocate" onclick="toggleModel('autoLocate', this)"></div>
+              <button class="mini-btn" onclick="locateNow()" data-i18n="settings.autoLocate.btn">获取定位</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.userLatitude">所在地纬度</span>
+            <input type="number" class="field" id="inLat" min="-90" max="90" step="0.01">
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.userLongitude">所在地经度</span>
+            <input type="number" class="field" id="inLon" min="-180" max="180" step="0.01">
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.pWaveSpeed">纵波速度(km/s)</span>
+            <input type="number" class="field" id="inPWave" min="1" max="20" step="0.1">
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.sWaveSpeed">横波速度(km/s)</span>
+            <input type="number" class="field" id="inSWave" min="1" max="20" step="0.1">
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.earthRadius">地球平均半径(km)</span>
+            <input type="number" class="field" id="inEarthR" min="6000" max="7000">
+          </div>
+          <div class="locate-status" id="locateStatus"></div>
+        </section>
+
+        <section class="page" data-page="appearance">
+          <div class="page-head">
+            <div class="page-title" data-i18n="settings.appearance">界面外观</div>
+            <div class="page-desc" data-i18n="installer.appearance.desc">定制窗口控制按钮与导航栏风格</div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.titleBarStyle">窗口控制按钮样式</span>
+            <div class="radios">
+              <label><input type="radio" name="titleBarStyle" value="windows" onchange="model.titleBarStyle='windows'"> <span data-i18n="settings.titleBarStyle.windows">Windows 风格</span></label>
+              <label><input type="radio" name="titleBarStyle" value="mac" onchange="model.titleBarStyle='mac'"> <span data-i18n="settings.titleBarStyle.mac">MacOS 红绿灯</span></label>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.floatingNav">悬浮液态玻璃底栏</span>
+            <div class="switch" id="swFloating" onclick="toggleModel('floatingNav', this)"></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="ai">
+          <div class="page-head">
+            <div class="page-title" data-i18n="settings.ai">AI设置</div>
+            <div class="page-desc" data-i18n="installer.ai.desc">配置 AI 接口后，可在地震详情中使用 AI 智能解读（可稍后再设置）</div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.aiDomain">AI API地址</span>
+            <input type="text" class="field" id="inAiDomain" data-i18n-placeholder="settings.aiDomain.placeholder" placeholder="例如: https://api.deepseek.com/v1">
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.aiFullUrl">完整URL</span>
+            <div class="switch" id="swAiFull" onclick="toggleModel('aiFullUrl', this)"></div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.aiApiKey">AI API密钥</span>
+            <input type="password" class="field" id="inAiKey" data-i18n-placeholder="settings.aiApiKey.placeholder" placeholder="请输入API密钥">
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="settings.aiModel">模型名称</span>
+            <input type="text" class="field" id="inAiModel" data-i18n-placeholder="settings.aiModel.placeholder" placeholder="例如: deepseek-chat">
+          </div>
+        </section>
+
+        <section class="page" data-page="push">
+          <div class="page-head">
+            <div class="page-title" data-i18n="push.title">推送链接</div>
+            <div class="page-desc" data-i18n="installer.push.desc">配置后，预警触发时将向移动设备推送通知（可稍后再设置）</div>
+          </div>
+          <div class="row">
+            <span class="row-label" data-i18n="push.mode">推送模式</span>
+            <div class="radios">
+              <label><input type="radio" name="pushMode" value="simple" onchange="switchPushMode('simple')"> <span data-i18n="push.mode.simple">简单模式（Bark）</span></label>
+              <label><input type="radio" name="pushMode" value="pro" onchange="switchPushMode('pro')"> <span data-i18n="push.mode.pro">专业模式（自定义JSON）</span></label>
+            </div>
+          </div>
+
+          <div class="push-panel" id="pushSimplePanel">
+            <div class="row">
+              <span class="row-label" data-i18n="push.barkServer">Bark 服务器地址</span>
+              <input type="text" class="field" id="inBarkUrl" placeholder="https://api.day.app/push">
+            </div>
+            <div class="row">
+              <span class="row-label" data-i18n="push.deviceKey">Bark device_key</span>
+              <input type="text" class="field" id="inBarkKey" data-i18n-placeholder="push.deviceKey.placeholder" placeholder="你的Key（可在 Bark APP 获取）">
+            </div>
+          </div>
+
+          <div class="push-panel" id="pushProPanel" style="display:none;">
+            <div class="row" style="border-bottom:none;">
+              <span class="row-label" data-i18n="push.jsonTemplate">JSON 内容</span>
+              <span style="flex:1;"></span>
+            </div>
+            <div class="row" style="border-bottom:none;">
+              <input type="text" class="field" id="inPushUrl" style="width:100%;" placeholder="https://api.day.app/push">
+            </div>
+            <textarea class="field" id="inPushTpl" rows="9" spellcheck="false"></textarea>
+            <div class="row" style="border-bottom:none;">
+              <span class="row-label" data-i18n="push.insertVar">点击插入变量</span>
+            </div>
+            <div class="push-vars">
+              <button type="button" class="var-chip" onclick="insertVar('{TITLE}')">{TITLE}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{BODY}')">{BODY}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{FZSK}')">{FZSK}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{ZZMC}')">{ZZMC}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{ZHENJI}')">{ZHENJI}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{LIEDU}')">{LIEDU}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{YGLD}')">{YGLD}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{ZZJ}')">{ZZJ}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{TIME}')">{TIME}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{YHCD}')">{YHCD}</button>
+              <button type="button" class="var-chip" onclick="insertVar('{BXJY}')">{BXJY}</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="options">
+          <div class="page-head">
+            <div class="page-title" data-i18n="installer.options.title">安装选项</div>
+            <div class="page-desc" data-i18n="installer.options.desc">选择安装位置，以及需要创建的快捷方式</div>
+          </div>
+          <div class="row-label" data-i18n="installer.dir">安装目录</div>
+          <div class="dir-row">
+            <input type="text" class="field" id="inInstallDir">
+            <button class="mini-btn" onclick="browseDir()" data-i18n="installer.browse">浏览…</button>
+          </div>
+          <div class="meta">
+            <span><span data-i18n="installer.size">程序所需空间</span>: <span id="metaSize"></span></span>
+          </div>
+          <label class="check-line">
+            <input type="checkbox" id="chkDesktop" onchange="model.desktopShortcut=this.checked">
+            <span data-i18n="installer.desktop">创建桌面快捷方式</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="chkStartMenu" onchange="model.startMenuShortcut=this.checked">
+            <span data-i18n="installer.startmenu">创建开始菜单快捷方式</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="chkAutoStart" onchange="model.autoStart=this.checked">
+            <span data-i18n="installer.autoStart">开机自动启动 LaQuake</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="chkLaunch" onchange="model.launchAfter=this.checked">
+            <span data-i18n="installer.launch">安装完成后立即启动 LaQuake</span>
+          </label>
+        </section>
+
+        <section class="page" data-page="progress">
+          <div class="progress-wrap">
+            <div class="progress-ring" id="progressRing">⚙️</div>
+            <div class="progress-percent" id="progressPercent">0%</div>
+            <div class="progress-status" id="progressStatus" data-i18n="installer.progress.copying">正在复制文件</div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-file" id="progressFile"></div>
+            <div class="progress-error" id="progressError"></div>
+            <button class="mini-btn" id="btnCancelInstall" onclick="requestCancelInstall()" style="margin-top:26px;" data-i18n="installer.cancel">取消安装</button>
+          </div>
+        </section>
+
+        <section class="page" data-page="finish">
+          <div class="center">
+            <div class="finish-icon">✓</div>
+            <h1 data-i18n="installer.finish.title">LaQuake 安装完成</h1>
+            <p data-i18n="installer.finish.desc">一切就绪，预警守护即刻上线。感谢选择 LaQuake！</p>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="footer" id="footer">
+        <div class="footer-info" id="footerInfo"></div>
+        <div class="footer-actions">
+          <button class="btn btn-secondary" id="btnBack" onclick="goBack()"></button>
+          <button class="btn btn-primary" id="btnNext" onclick="goNext()"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-mask" id="avModal">
+    <div class="modal">
+      <div class="modal-icon">🛡️</div>
+      <div class="modal-title" data-i18n="installer.av.title">安装前请先关闭杀毒软件</div>
+      <div class="modal-text" data-i18n="installer.av.text">安装过程会释放程序文件、创建快捷方式并写入开机启动项，360安全卫士、电脑管家等杀毒软件可能弹窗拦截甚至误删文件。建议暂时退出杀毒软件或关闭实时防护，安装完成后再重新开启。</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="avCancel" data-i18n="installer.av.cancel">取消</button>
+        <button class="btn btn-primary" id="avContinue" data-i18n="installer.av.continue">我已关闭，继续安装</button>
+      </div>
+    </div>
+  </div>
+  <script src="installer.js"></script>
+</body>
+</html>

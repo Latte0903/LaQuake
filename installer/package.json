@@ -1,0 +1,56 @@
+{
+  "name": "laquake-installer",
+  "version": "1.2.0",
+  "description": "LaQuake 安装向导",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --x64"
+  },
+  "keywords": [
+    "earthquake",
+    "warning",
+    "installer"
+  ],
+  "author": "LaQuake",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.laquake.installer",
+    "productName": "LaQuake-Setup",
+    "directories": {
+      "output": "../dist-installer"
+    },
+    "win": {
+      "target": "portable",
+      "icon": "../Media/LaQuake.ico",
+      "asar": true
+    },
+    "portable": {
+      "artifactName": "LaQuake-Setup-${version}-${arch}.exe"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "installer.html",
+      "installer.js"
+    ],
+    "extraResources": [
+      {
+        "from": "payload",
+        "to": "payload"
+      },
+      {
+        "from": "i18n",
+        "to": "i18n"
+      },
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ]
+  }
+}
