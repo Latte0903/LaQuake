@@ -5,3 +5,14 @@ installer/payload/
 installer/.payload-old-*/
 *.log
 .DS_Store
+
+# IDE
+.trae/
+
+# 本地手工测试数据（代码无引用）
+test/
+test-data/
+预警ID.json
+
+# 临时草稿
+新建 文本文档.txt

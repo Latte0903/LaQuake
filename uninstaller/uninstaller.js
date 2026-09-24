@@ -2,7 +2,7 @@ const STRINGS = {
   'zh-CN': {
     title: 'LaQuake 卸载向导',
     confirmTitle: '确定要卸载 LaQuake 吗？',
-    confirmDesc: '卸载将移除程序文件、桌面与开始菜单快捷方式，以及注册表中的安装信息。',
+    confirmDesc: '卸载将移除程序释放的文件、桌面与开始菜单快捷方式，以及注册表中的安装信息。您自行放入安装目录的个人文件会被保留。',
     lblDir: '安装位置：',
     lblData: '用户数据：',
     dataKept: '将保留（设置与历史记录）',
@@ -19,7 +19,7 @@ const STRINGS = {
     phaseRegistry: '正在移除注册表信息',
     phaseCleanup: '正在准备清理程序文件',
     finishTitle: 'LaQuake 已卸载',
-    finishDesc: '点击「完成」关闭向导，安装目录中的剩余文件将被自动清除。',
+    finishDesc: '点击「完成」关闭向导，程序释放的剩余文件将被自动清除；您的个人文件会被保留。',
     failTitle: '卸载未能完成',
     avTitle: '卸载前请先关闭杀毒软件',
     avText: '卸载过程会结束运行中的程序、删除程序文件与快捷方式，360安全卫士、电脑管家等杀毒软件可能拦截卸载操作。建议暂时退出杀毒软件或关闭实时防护，卸载完成后再重新开启。',
@@ -29,7 +29,7 @@ const STRINGS = {
   en: {
     title: 'LaQuake Uninstall Wizard',
     confirmTitle: 'Are you sure you want to uninstall LaQuake?',
-    confirmDesc: 'This will remove the application files, desktop and Start Menu shortcuts, and its registry entries.',
+    confirmDesc: 'This will remove the files created by the program, desktop and Start Menu shortcuts, and its registry entries. Personal files you placed in the install directory will be kept.',
     lblDir: 'Install location: ',
     lblData: 'User data: ',
     dataKept: 'Will be kept (settings and history)',
@@ -46,7 +46,7 @@ const STRINGS = {
     phaseRegistry: 'Removing registry entries',
     phaseCleanup: 'Preparing file cleanup',
     finishTitle: 'LaQuake Uninstalled',
-    finishDesc: 'Click Finish to close the wizard. Remaining files will be removed automatically.',
+    finishDesc: 'Click Finish to close the wizard. Remaining program files will be removed automatically; your personal files will be kept.',
     failTitle: 'Uninstall failed',
     avTitle: 'Close your antivirus before uninstalling',
     avText: 'Uninstalling will terminate the running application and remove program files and shortcuts. Antivirus software (e.g. 360 Total Security, Tencent PC Manager) may block these actions. Please exit your antivirus or temporarily disable real-time protection, then re-enable it afterwards.',
@@ -124,6 +124,9 @@ function showAvConfirm() {
 async function startUninstall() {
   if (!(await showAvConfirm())) return;
   showPage('progress');
+  // 卸载执行中禁止标题栏关窗/最小化，避免清理流程未安排好窗口就消失
+  $('tbMin').style.display = 'none';
+  $('tbClose').style.display = 'none';
   $('progressError').style.display = 'none';
   $('progressFill').style.width = '8%';
   $('progressStatus').textContent = t('preparing');
@@ -136,6 +139,8 @@ async function startUninstall() {
     $('progressStatus').textContent = '';
     showPage('finish');
   } else {
+    $('tbMin').style.display = '';
+    $('tbClose').style.display = '';
     $('progressRing').textContent = '❌';
     $('progressStatus').textContent = t('failTitle');
     const box = $('progressError');

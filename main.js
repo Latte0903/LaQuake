@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, Tray, Menu } = require('electron');
+// 真实预警由后台轮询触发，渲染进程没有用户手势，默认自动播放策略会拦截
+// new Audio().play()（表现为：设置页测试能响、真实/测试预警不响）
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const axios = require('axios');
 const { SeismicAPI } = require('./src/api');
 const { DataStore } = require('./src/store');
@@ -108,6 +112,64 @@ let sWaveArrived = false;
 let isFirstLoad = true;
 let processedEEW = {};
 let alertExpireTime = 7200000;
+
+// 各数据源发震时间的 UTC 偏移：JMA 为 UTC+9，CENC/SC/FJ/CQ/CWA 均为 UTC+8
+const SOURCE_UTC_OFFSET = { cenc: 8, sc: 8, fj: 8, cq: 8, cwa: 8, jma: 9 };
+// 服务器时间 - 本机时间（ms）。客户端时钟可能有偏差，倒计时必须与真实时间轴对齐，
+// 用 ntp.json 周期性校准；校时失败时保持 0（退化为用本机时钟）
+let serverClockOffset = 0;
+let lastNtpSync = 0;
+let ntpSyncTimer = null;
+
+const getCorrectedNow = () => Date.now() + serverClockOffset;
+
+async function syncServerTime() {
+  const start = Date.now();
+  try {
+    const data = await api.getServerTime();
+    const end = Date.now();
+    if (!data || data.timestamp === null || data.timestamp === undefined) return;
+    let serverMs = Number(data.timestamp);
+    if (!Number.isFinite(serverMs)) return;
+    if (serverMs > 0 && serverMs < 1e12) serverMs *= 1000; // 秒级时间戳兜底
+    // 合理性校验：2000-01-01 ~ 2100-01-01，异常值不采信
+    if (serverMs < 946684800000 || serverMs > 4102444800000) return;
+    // 网络往返过大时中点估算不可信，放弃本次校准
+    if (end - start > 5000) return;
+    // 时间戳对应请求往返中点时刻
+    serverClockOffset = serverMs - (start + end) / 2;
+    lastNtpSync = end;
+    console.log('Server clock offset synced:', Math.round(serverClockOffset), 'ms, rtt:', end - start, 'ms');
+  } catch (error) {
+    console.error('Failed to sync server time:', error.message);
+  }
+}
+
+// 横波到达的唯一权威算法：
+//   发震时刻（数据源时区，绝对时间戳）+ 震源距 / 横波速度 = 横波理论到达时刻
+//   倒计时 = 到达时刻 - 当前时刻（经服务器校时）
+// 而不是从“预警发出/收到”才开始计时——预警发出前横波已经在传播
+function computeSWaveArrival(eew, distance, source) {
+  const sWaveSpeed = Number(settings.get('sWaveSpeed', 4)) || 4;
+  const offsetHours = SOURCE_UTC_OFFSET[source] ?? 8;
+  const originMs = geo.parseSourceTime(eew.OriginTime ?? eew.origin_time, offsetHours);
+  const depth = intensityLib.getEventDepth(eew);
+  const surfaceDistance = Number(distance) || 0;
+  const hypoDistance = geo.calcHypocentralDistance(depth, surfaceDistance);
+  const travelSeconds = hypoDistance / sWaveSpeed;
+  const originValid = !Number.isNaN(originMs);
+  const arrivalMs = originValid ? originMs + travelSeconds * 1000 : NaN;
+  const remainingMs = originValid ? Math.max(0, arrivalMs - getCorrectedNow()) : 0;
+  return {
+    originMs,
+    depth,
+    hypoDistance,
+    travelSeconds,
+    arrivalMs,
+    remainingMs,
+    sWaveSeconds: Math.max(0, Math.ceil(remainingMs / 1000))
+  };
+}
 
 [process.stdout, process.stderr].forEach(stream => {
   if (stream && typeof stream.on === 'function') {
@@ -297,6 +359,9 @@ function cleanup() {
   if (eewPollingTimer) clearInterval(eewPollingTimer);
   if (eqPollingTimer) clearInterval(eqPollingTimer);
   if (sWaveTimer) clearInterval(sWaveTimer);
+  if (ntpSyncTimer) clearInterval(ntpSyncTimer);
+  testSimTimers.forEach(timer => clearTimeout(timer));
+  testSimTimers.clear();
   if (alertWindow && !alertWindow.isDestroyed()) alertWindow.destroy();
 
   if (fs.existsSync(laFilePath)) {
@@ -412,17 +477,18 @@ async function fetchEEWFromSource(source, count) {
     }
     
     const eew = data;
+    eew._source = source;
     const eventId = eew.EventID;
     const serial = eew.Serial || eew.ReportNum || 0;
     const now = Date.now();
     
-    const originTime = new Date(eew.OriginTime);
-    if (isNaN(originTime.getTime())) {
+    const originTime = geo.parseSourceTime(eew.OriginTime, SOURCE_UTC_OFFSET[source] ?? 8);
+    if (Number.isNaN(originTime)) {
       console.log(`EEW [${source}]: Invalid OriginTime:`, eew.OriginTime);
       return;
     }
     
-    const timeSinceOrigin = now - originTime.getTime();
+    const timeSinceOrigin = now - originTime;
     console.log(`EEW [${source}]: Time since origin:`, timeSinceOrigin / 1000, 'seconds, source:', source);
 
     const { localIntensity, epicenterIntensity, region } = evaluateEewIntensity(eew, source);
@@ -450,7 +516,7 @@ async function fetchEEWFromSource(source, count) {
           
           if (nowTime - processedEEW[eventId].lastAlertTime > alertCooldown) {
             processedEEW[eventId].lastAlertTime = nowTime;
-            handleEEWAlert(eew, localIntensity);
+            handleEEWAlert(eew, localIntensity, source);
           }
         }
       }
@@ -482,7 +548,7 @@ async function fetchEQData() {
       if (isNew) {
         const notifyIntensity = Math.max(localIntensity || 0, epicenterIntensity || 0);
         if (notifyIntensity >= settings.get('minEQIntensity', 0)) {
-          sound.play('newrecord');
+          playNamedSound('newrecord');
           await sendEQPost(eq, localIntensity, distance);
         }
       }
@@ -518,8 +584,11 @@ function formatIntensityText(value) {
 }
 
 function buildEewPushVars(eew, localIntensity, distance) {
-  const sWaveSpeed = settings.get('sWaveSpeed', 4);
-  const time = Math.max(0, Math.floor(distance / sWaveSpeed));
+  // 推送中的“横波将于 X 秒后到达”同样要扣除发震至今已经过去的时间
+  const wave = computeSWaveArrival(eew, distance, eew._source || 'cenc');
+  const time = Number.isFinite(wave.arrivalMs)
+    ? wave.sWaveSeconds
+    : Math.max(0, Math.floor(distance / settings.get('sWaveSpeed', 4)));
 
   const fzsk = eew.OriginTime || '';
   const zzmc = eew.HypoCenter || eew.Hypocenter || eew.hypocenter || t('label.unknown');
@@ -746,11 +815,12 @@ function showAlertWindow(payload) {
   win.focus();
 }
 
-function handleEEWAlert(eew, localIntensity) {
+function handleEEWAlert(eew, localIntensity, source) {
   const epicenterIntensity = eew._epicenterIntensity !== undefined && eew._epicenterIntensity !== null
     ? Number(eew._epicenterIntensity)
     : (intensityLib.parseShindo(eew.MaxIntensity ?? eew.max_intensity) ?? 0);
 
+  const waveSource = source || eew._source || 'cenc';
   sendEEWPost(eew, localIntensity);
 
   const userLat = settings.get('userLatitude', 30.67);
@@ -763,25 +833,51 @@ function handleEEWAlert(eew, localIntensity) {
     distance = geo.calculateDistance(userLat, userLon, epicenterLat, epicenterLon);
   }
 
-  const sWaveSpeed = settings.get('sWaveSpeed', 4);
-  const originTime = new Date(eew.OriginTime);
-  const elapsed = isNaN(originTime.getTime()) ? 0 : (Date.now() - originTime.getTime()) / 1000;
-  const sWaveSeconds = Math.max(0, Math.ceil(distance / sWaveSpeed - elapsed));
+  // 发震时刻 + 震源距/横波速度 = 理论到达时刻；展示前已过去的时间自然被扣掉
+  const wave = computeSWaveArrival(eew, distance, waveSource);
+  if (Number.isNaN(wave.originMs)) {
+    console.log('EEW alert: invalid origin time, countdown forced to 0:', eew.OriginTime);
+  } else {
+    console.log(`EEW alert [${waveSource}]: hypocenter distance ${wave.hypoDistance.toFixed(1)}km,`,
+      'travel', wave.travelSeconds.toFixed(1) + 's,',
+      'elapsed', ((getCorrectedNow() - wave.originMs) / 1000).toFixed(1) + 's,',
+      'remaining', wave.sWaveSeconds + 's');
+  }
 
   const isCritical = epicenterIntensity >= 6;
 
-  triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, isCritical);
-  playAlertSound(isCritical ? 'critical' : 'alert');
+  triggerAlertWindow(eew, localIntensity, distance, wave.sWaveSeconds, wave.arrivalMs, isCritical);
+  playNamedSound(isCritical ? 'critical' : 'alert');
 }
 
-function playAlertSound(soundName) {
-  const filePath = sound.getSoundFilePath(soundName);
-  if (filePath && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.executeJavaScript(`playSound('${filePath.replace(/\\/g, '\\\\')}')`);
+function playSoundInWindow(win, filePath) {
+  if (!win || win.isDestroyed() || !filePath) return;
+  let fileUrl;
+  try {
+    fileUrl = pathToFileURL(filePath).href;
+  } catch (error) {
+    return;
   }
+  // 自包含代码片段，不依赖渲染层的全局函数；JSON.stringify 保证路径安全内嵌
+  const snippet =
+    '(function(){try{' +
+    'var a=new Audio(' + JSON.stringify(fileUrl) + ');' +
+    'a.volume=1;' +
+    'a.play().catch(function(e){console.error("Failed to play sound:",e&&e.message);});' +
+    '}catch(e){console.error("Error playing sound:",e&&e.message);}})();void 0;';
+  win.webContents.executeJavaScript(snippet).catch(() => {});
 }
 
-function triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, isCritical) {
+// 所有真实事件音效的统一入口（预警、横波到达、摇晃提示、新速报）
+function playNamedSound(soundName, options) {
+  const force = !!(options && options.force);
+  if (!force && settings.get('soundEnabled', true) === false) return;
+  const filePath = sound.getSoundFilePath(soundName);
+  if (!filePath || !fs.existsSync(filePath)) return;
+  playSoundInWindow(mainWindow, filePath);
+}
+
+function triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, arrivalMs, isCritical) {
   const currentSerial = currentEEW ? (currentEEW.Serial || currentEEW.ReportNum || 0) : 0;
   const newSerial = eew.Serial || eew.ReportNum || 0;
 
@@ -793,39 +889,44 @@ function triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, isCriti
   currentEEW = eew;
   sWaveArrived = false;
 
+  // 给渲染层的到达时刻换算到本机时钟轴（渲染层直接用 Date.now() 与之比较），
+  // 使客户端时钟偏差的修正在两端保持一致
+  const arrivalTimestamp = Number.isFinite(arrivalMs) ? arrivalMs - serverClockOffset : null;
+
   showAlertWindow({
     eew,
     localIntensity,
     distance,
     sWaveSeconds,
+    arrivalTimestamp,
     isCritical,
     yhcd: intensityLib.getShakeDegree(localIntensity),
     bxjy: intensityLib.getAvoidanceAdvice(localIntensity)
   });
 
   if (sWaveTimer) clearInterval(sWaveTimer);
+  sWaveTimer = null;
 
-  if (sWaveSeconds > 0) {
+  // 展示时横波尚未到达才需要定时器：到“理论到达时刻”那一刻触发到达音效与提示
+  if (Number.isFinite(arrivalMs) && sWaveSeconds > 0) {
     sWaveTimer = setInterval(() => {
       if (sWaveArrived) return;
-      if (sWaveSeconds <= 1) {
+      if (getCorrectedNow() >= arrivalMs) {
         sWaveArrived = true;
         clearInterval(sWaveTimer);
         sWaveTimer = null;
-        sound.play('swave');
+        playNamedSound('swave');
 
         setTimeout(() => {
           const intensityLevel = getIntensityLevel(localIntensity);
-          if (intensityLevel) sound.play(intensityLevel);
+          if (intensityLevel) playNamedSound(intensityLevel);
         }, 2000);
 
         if (alertWindow && !alertWindow.isDestroyed()) {
           alertWindow.webContents.send('alertWaveArrived');
         }
-      } else {
-        sWaveSeconds -= 1;
       }
-    }, 1000);
+    }, 500);
   }
 }
 
@@ -972,18 +1073,19 @@ ipcMain.on('sendTestEEW', async (event, testData) => {
   const eew = {
     ...testData,
     EventID: `TEST-${Date.now()}`,
-    Serial: testData.ReportNum
+    Serial: testData.ReportNum,
+    _source: 'cenc'
   };
   
   const now = Date.now();
   
-  const originTime = new Date(eew.OriginTime);
-  if (isNaN(originTime.getTime())) {
+  const originTime = geo.parseSourceTime(eew.OriginTime, SOURCE_UTC_OFFSET.cenc);
+  if (Number.isNaN(originTime)) {
     console.log('Test EEW: Invalid OriginTime:', eew.OriginTime);
     return;
   }
   
-  const timeSinceOrigin = now - originTime.getTime();
+  const timeSinceOrigin = now - originTime;
   console.log('Test EEW: Time since origin:', timeSinceOrigin / 1000, 'seconds');
   
   const expireTime = 5 * 60 * 1000;
@@ -1014,10 +1116,164 @@ ipcMain.on('sendTestEEW', async (event, testData) => {
           await sendEEWPost(eew, localIntensity);
           console.log('Test EEW: push sent');
           
-          handleEEWAlert(eew, localIntensity);
+          handleEEWAlert(eew, localIntensity, 'cenc');
         }
       }
     }
+  }
+});
+
+// ===== 模拟预警 JSON 导入导出 / 要石(kanameishi)多报时序模拟 =====
+const testSimTimers = new Set();
+
+// 按数据源 UTC 偏移生成对应的“墙上时间”字符串（不依赖本机时区），
+// 与 geo.parseSourceTime 的解析严格互逆
+function formatSourceWallTime(timestamp, utcOffsetHours) {
+  const d = new Date(timestamp + Number(utcOffsetHours) * 3600000);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
+function isAutoIntensityValue(value) {
+  if (value === null || value === undefined || value === '') return true;
+  const text = String(value).trim();
+  return text === '自动' || /^auto$/i.test(text);
+}
+
+// 把要石标准 forms 中的一报构造成内部 EEW 对象
+function buildSimEEW(form, index, eventId, source, originStr, reportStr) {
+  const eew = {
+    EventID: eventId,
+    Serial: index + 1,
+    ReportNum: index + 1,
+    OriginTime: originStr,
+    ReportTime: reportStr,
+    Depth: form.depth === null || form.depth === undefined || form.depth === '' ? 10 : Number(form.depth),
+    isWarn: !!form.isWarn,
+    isAssumption: !!form.isAssumption,
+    _source: source
+  };
+
+  const magnitude = parseFloat(form.magnitude);
+  const lat = Number(form.lat);
+  const lng = Number(form.lng);
+  const intensityAuto = isAutoIntensityValue(form.maxIntensity);
+
+  if (source === 'jma') {
+    eew.Hypocenter = String(form.hypocenter || '');
+    eew.Magunitude = magnitude;
+    if (!intensityAuto) eew.MaxIntensity = form.maxIntensity; // 如 5弱/5強/3
+  } else {
+    eew.HypoCenter = String(form.hypocenter || '');
+    eew.Magnitude = magnitude;
+    if (!intensityAuto) {
+      eew.MaxIntensity = isNaN(Number(form.maxIntensity)) ? form.maxIntensity : Number(form.maxIntensity);
+    }
+  }
+  if (isValidLatLon(lat, lng)) {
+    eew.Latitude = lat;
+    eew.Longitude = lng;
+  }
+  return eew;
+}
+
+async function dispatchSimulatedReport(eew, source) {
+  const { localIntensity, epicenterIntensity, region } = evaluateEewIntensity(eew, source);
+  eew._epicenterIntensity = epicenterIntensity;
+  eew._intRegion = region;
+  if (localIntensity < settings.get('minLocalIntensity', 0)) {
+    console.log('Simulated report skipped: local intensity below threshold:', localIntensity);
+    return false;
+  }
+  await sendEEWPost(eew, localIntensity);
+  handleEEWAlert(eew, localIntensity, source);
+  return true;
+}
+
+ipcMain.handle('sendTestEEWSequence', async (event, config) => {
+  try {
+    if (!config || !Array.isArray(config.forms) || config.forms.length === 0) {
+      return { ok: false, error: 'invalid forms' };
+    }
+    const source = config.useShindo === true ? 'jma' : 'cenc';
+    const tzOffset = SOURCE_UTC_OFFSET[source];
+
+    const rawId = String(config.id || 'sim').replace(/[^\w-]/g, '').slice(0, 40) || 'sim';
+    // 同一配置允许重复运行：每次运行独立 EventID，避免被同报序号去重逻辑拦截
+    const eventId = `TEST-${rawId}-${Date.now()}`;
+
+    const forms = config.forms
+      .map(f => f || {})
+      .filter(f => f.isCanceled !== true)
+      .filter(f => isFinite(parseFloat(f.magnitude)))
+      .sort((a, b) => (Number(a.reportDelay) || 0) - (Number(b.reportDelay) || 0));
+
+    if (forms.length === 0) return { ok: false, error: 'no valid forms' };
+
+    const base = Date.now();
+    let scheduled = 0;
+    forms.forEach((form, index) => {
+      const originMs = base + (Number(form.originDelay) || 0) * 1000;
+      const reportMs = base + (Number(form.reportDelay) || 0) * 1000;
+      const eew = buildSimEEW(
+        form, index, eventId, source,
+        formatSourceWallTime(originMs, tzOffset),
+        formatSourceWallTime(reportMs, tzOffset)
+      );
+      const delay = Math.max(0, reportMs - base);
+      const timer = setTimeout(async () => {
+        testSimTimers.delete(timer);
+        try {
+          await dispatchSimulatedReport(eew, source);
+        } catch (error) {
+          console.error('Simulated report dispatch error:', error);
+        }
+      }, delay);
+      testSimTimers.add(timer);
+      scheduled += 1;
+    });
+
+    console.log(`EEW simulation [${source}] scheduled ${scheduled} reports, event:`, eventId);
+    return { ok: true, count: scheduled };
+  } catch (error) {
+    console.error('sendTestEEWSequence error:', error);
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('testEewImportFile', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '导入模拟预警 JSON',
+      filters: [
+        { name: 'JSON 文件', extensions: ['json'] },
+        { name: '所有文件', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    const filePath = result.filePaths[0];
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    return { canceled: false, content, fileName: path.basename(filePath) };
+  } catch (error) {
+    return { canceled: false, error: error.message };
+  }
+});
+
+ipcMain.handle('testEewExportFile', async (event, payload) => {
+  try {
+    const data = payload || {};
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出模拟预警 JSON',
+      defaultPath: data.suggestedName || '模拟预警.json',
+      filters: [{ name: 'JSON 文件', extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    await fs.promises.writeFile(result.filePath, data.content || '', 'utf8');
+    return { canceled: false, filePath: result.filePath };
+  } catch (error) {
+    return { canceled: false, error: error.message };
   }
 });
 
@@ -1034,39 +1290,12 @@ ipcMain.on('getEQHistory', async (event, count) => {
 });
 
 ipcMain.on('playSound', (event, soundName) => {
-  const soundPathMap = {
-    alert: settings.get('soundAlert', ''),
-    critical: settings.get('soundCritical', ''),
-    update: settings.get('soundUpdate', ''),
-    swave: settings.get('soundSWave', ''),
-    newrecord: settings.get('soundNewRecord', ''),
-    weakshake: settings.get('soundWeakShake', ''),
-    midshake: settings.get('soundMidShake', ''),
-    strongshake: settings.get('soundStrongShake', '')
-  };
-  
-  const filePath = soundPathMap[soundName] || '';
-  if (filePath && mainWindow) {
-    mainWindow.webContents.executeJavaScript(`playSound('${filePath.replace(/\\/g, '\\\\')}')`);
-  }
+  playNamedSound(soundName);
 });
 
 ipcMain.on('testSound', (event, soundName) => {
-  const soundPathMap = {
-    alert: settings.get('soundAlert', ''),
-    critical: settings.get('soundCritical', ''),
-    update: settings.get('soundUpdate', ''),
-    swave: settings.get('soundSWave', ''),
-    newrecord: settings.get('soundNewRecord', ''),
-    weakshake: settings.get('soundWeakShake', ''),
-    midshake: settings.get('soundMidShake', ''),
-    strongshake: settings.get('soundStrongShake', '')
-  };
-  
-  const filePath = soundPathMap[soundName] || '';
-  if (filePath && mainWindow) {
-    mainWindow.webContents.executeJavaScript(`playSound('${filePath.replace(/\\/g, '\\\\')}')`);
-  }
+  // 显式测试：即使总开关关闭也播放，方便用户验证音效文件
+  playNamedSound(soundName, { force: true });
 });
 
 ipcMain.on('getSoundFilePath', (event, soundName) => {
@@ -1519,6 +1748,10 @@ app.whenReady().then(() => {
     loadLanguage(lang);
 
     sound.init();
+    // init 只注册默认音效，用户在设置中自定义的路径必须在启动时同步进来，
+    // 否则真实预警经 SoundManager 取路径会拿到空字符串（设置页测试按钮直接读
+    // settings，所以不受影响——这正是“测试能响、预警不响”的原因之一）
+    sound.updateFromSettings(currentSettings);
 
     // 按设置同步开机自启注册表，并清理失效的自启项
     syncAutoStart(currentSettings.autoStart === true);
@@ -1527,6 +1760,10 @@ app.whenReady().then(() => {
 
     createWindow();
     startPolling();
+    // 并行校准服务器时钟：首屏加载不弹预警，正常情况下第二次轮询前即可校准完成；
+    // 校时失败也不影响预警获取（offset 保持 0，退化为本机时钟）
+    syncServerTime();
+    ntpSyncTimer = setInterval(syncServerTime, 5 * 60 * 1000);
 
     // 开启自动定位时，后台获取经纬度并更新设置（失败则保留原坐标）
     if (currentSettings.autoLocate === true) {

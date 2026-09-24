@@ -22,6 +22,7 @@ const INSTALLER_STRINGS = {
     'installer.options.title': '安装选项',
     'installer.options.desc': '选择安装位置，以及需要创建的快捷方式',
     'installer.dir': '安装目录',
+    'installer.dir.hint': '程序文件将安装到 LaQuake 子文件夹中；卸载时只删除程序释放的文件，您自行放入的个人文件会被保留。',
     'installer.browse': '浏览…',
     'installer.desktop': '创建桌面快捷方式',
     'installer.startmenu': '创建开始菜单快捷方式',
@@ -81,6 +82,7 @@ const INSTALLER_STRINGS = {
     'installer.options.title': 'Install Options',
     'installer.options.desc': 'Choose the install location and shortcuts to create',
     'installer.dir': 'Install directory',
+    'installer.dir.hint': 'Program files will be installed in a LaQuake subfolder. Uninstalling removes only the files created by the program; any personal files you place there are kept.',
     'installer.browse': 'Browse…',
     'installer.desktop': 'Create desktop shortcut',
     'installer.startmenu': 'Create Start Menu shortcut',
@@ -433,8 +435,15 @@ function insertVar(token) {
 async function browseDir() {
   const result = await window.installerAPI.pickDir(model.installDir);
   if (result.ok) {
-    model.installDir = result.path;
-    $('inInstallDir').value = result.path;
+    // 用户选的是父目录，解析为其下的 LaQuake 子目录（已叫 LaQuake 则保持不变）
+    const resolved = await window.installerAPI.resolveInstallDir(result.path);
+    if (resolved.ok) {
+      model.installDir = resolved.path;
+      $('inInstallDir').value = resolved.path;
+    } else {
+      model.installDir = result.path;
+      $('inInstallDir').value = result.path;
+    }
   }
 }
 
@@ -536,6 +545,17 @@ async function beginInstall() {
     stepIndex = STEPS.indexOf('options');
     showPage(stepIndex);
     return;
+  }
+
+  // 全新安装：把手动输入/选择的父目录规范为其下的 LaQuake 子目录；
+  // 升级/覆盖安装必须沿用原目录，不做追加
+  if (!upgradeMode) {
+    const resolved = await window.installerAPI.resolveInstallDir(config.installDir);
+    if (resolved.ok) {
+      config.installDir = resolved.path;
+      model.installDir = resolved.path;
+      $('inInstallDir').value = resolved.path;
+    }
   }
 
   if (!(await showAvConfirm())) return;

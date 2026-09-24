@@ -34,6 +34,11 @@ const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const RUN_VALUE = 'LaQuake';
 const UNINSTALL_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\LaQuake';
 
+// 程序在用户所选目录下创建的专属子目录名
+const APP_DIR_NAME = 'LaQuake';
+// 卸载清单：记录安装时释放的全部相对路径，卸载时只删清单内文件
+const MANIFEST_NAME = 'install-manifest.json';
+
 const DEFAULT_SETTINGS = {
   language: 'zh-CN',
   eewSource: 'cenc',
@@ -141,6 +146,21 @@ ipcMain.handle('pick-dir', async (event, currentPath) => {
   });
   if (result.canceled || !result.filePaths.length) return { ok: false };
   return { ok: true, path: result.filePaths[0] };
+});
+
+// 把用户选择的父目录解析为真实安装目录：所选目录下新建 LaQuake 子目录；
+// 若所选目录本身就叫 LaQuake（如默认建议路径或用户手动指定），直接使用，避免双层嵌套。
+ipcMain.handle('resolve-install-dir', async (event, chosenPath) => {
+  try {
+    const base = path.resolve(String(chosenPath || ''));
+    validateInstallDir(base);
+    const finalDir = path.basename(base).toLowerCase() === APP_DIR_NAME.toLowerCase()
+      ? base
+      : path.join(base, APP_DIR_NAME);
+    return { ok: true, path: finalDir };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 });
 
 ipcMain.handle('load-translations', async (event, lang) => {
@@ -254,6 +274,22 @@ function validateInstallDir(p) {
   if (!/^[A-Za-z]:[\\/]/.test(p)) throw new Error('安装目录必须是有效的本地磁盘路径');
   if (path.parse(p).root === p) throw new Error('不能将磁盘根目录作为安装目录');
   if (/[<>"|?*]/.test(p)) throw new Error('安装目录包含非法字符');
+}
+
+// 由载荷相对路径推导全部相对目录（深的在前，卸载时按此顺序回收空目录）
+function buildManifest(payloadRels) {
+  const files = payloadRels.map((r) => r.split('/').join('\\'));
+  const dirSet = new Set();
+  for (const rel of files) {
+    let dir = path.dirname(rel);
+    while (dir && dir !== '.') {
+      if (dirSet.has(dir)) break;
+      dirSet.add(dir);
+      dir = path.dirname(dir);
+    }
+  }
+  const dirs = Array.from(dirSet).sort((a, b) => b.length - a.length);
+  return { version: 1, files, dirs };
 }
 
 async function ensureFreeSpace(targetDir, needBytes) {
@@ -396,7 +432,6 @@ ipcMain.handle('start-install', async (event, config) => {
   cancelRequested = false;
 
   let installDir = null;
-  let installDirExisted = false;
   let backupRoot = null;
   let backupCounter = 0;
   const tx = createTransaction();
@@ -436,7 +471,6 @@ ipcMain.handle('start-install', async (event, config) => {
       execFileSync('taskkill.exe', ['/im', 'LaQuake.exe', '/f'], { stdio: 'ignore', windowsHide: true });
     } catch (error) {}
 
-    installDirExisted = fs.existsSync(installDir);
     const madeDirs = [];
     const ensureDirTracked = async (target) => {
       if (rawFs.existsSync(target)) return;
@@ -468,13 +502,21 @@ ipcMain.handle('start-install', async (event, config) => {
       send({ phase: 'copy', percent: Math.round((doneBytes / totalBytes) * 100), file: f.rel });
     }
 
-    if (installDirExisted) {
-      tx.add(async () => {
-        for (let i = madeDirs.length - 1; i >= 0; i -= 1) {
-          await fs.promises.rmdir(madeDirs[i]).catch(() => {});
-        }
-      });
-    }
+    // 无论目录是否新建，都登记空目录回收（rmdir 仅删除空目录，内含用户文件时自动保留）
+    tx.add(async () => {
+      for (let i = madeDirs.length - 1; i >= 0; i -= 1) {
+        await fs.promises.rmdir(madeDirs[i]).catch(() => {});
+      }
+    });
+
+    // 写入卸载清单：仅记录程序释放的文件/目录，卸载时据此精确删除，
+    // 用户自行放入安装目录（含 LaQuake 子目录）的个人文件一律保留
+    const manifest = buildManifest(payloadFiles.map((f) => f.rel).concat(MANIFEST_NAME));
+    const manifestPath = path.join(installDir, MANIFEST_NAME);
+    await rawFsp.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+    tx.add(async () => {
+      await rawFsp.unlink(manifestPath).catch(() => {});
+    });
 
     const exePath = path.join(installDir, 'LaQuake.exe');
 
@@ -571,11 +613,9 @@ ipcMain.handle('start-install', async (event, config) => {
     return { ok: true };
   } catch (error) {
     const wasCancelled = error instanceof InstallCancelled;
-    if (!installDirExisted && installDir) {
-      await rawFsp.rm(installDir, { recursive: true, force: true }).catch(() => {});
-    } else {
-      await tx.rollback();
-    }
+    // 绝不整目录递归删除：事务回滚只会撤销本次释放的文件（用户文件保留），
+    // 并自下而上回收本次新建、且已清空的目录
+    await tx.rollback();
     if (wasCancelled) {
       send({ phase: 'cancelled', percent: 0 });
       return { ok: false, cancelled: true };

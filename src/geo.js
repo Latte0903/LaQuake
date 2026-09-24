@@ -36,6 +36,30 @@ class GeoCalculator {
     return sWaveTime - pWaveTime;
   }
 
+  // 按数据源声明的 UTC 偏移（JMA=+9，国内源/CWA=+8）把发震时间字符串解析为
+  // 绝对时间戳，不依赖本机时区——非 UTC+8 机器或海外用户也能得到正确的已耗时
+  parseSourceTime(value, utcOffsetHours = 8) {
+    if (value === null || value === undefined || value === '') return NaN;
+    if (typeof value === 'number') return value;
+    const m = String(value).trim()
+      .match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.(\d{1,3})\d*)?/);
+    if (!m) return new Date(value).getTime();
+    const ms = m[7] ? Number(m[7].padEnd(3, '0')) : 0;
+    return Date.UTC(
+      Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+      Number(m[4]), Number(m[5]), Number(m[6]), ms
+    ) - Number(utcOffsetHours) * 3600000;
+  }
+
+  // 震源（地下 depthKm 处）到用户所在地的直线距离（考虑地球曲率）。
+  // 横波沿震源→台站路径传播，用震源距而非地表震中距计算走时
+  calcHypocentralDistance(depthKm, surfaceDistanceKm) {
+    const r = this.earthRadius;
+    const theta = surfaceDistanceKm / r;
+    const a = r - depthKm;
+    return Math.sqrt(a * a + r * r - 2 * a * r * Math.cos(theta));
+  }
+
   getSafetyAdvice(intensity) {
     if (intensity >= 7) {
       return {
