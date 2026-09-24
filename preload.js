@@ -47,6 +47,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   autoLocate: () => ipcRenderer.invoke('autoLocate'),
   getSoundFilePath: (soundName) => ipcRenderer.sendSync('getSoundFilePath', soundName),
   sendTestEEW: (data) => ipcRenderer.send('sendTestEEW', data),
+  sendTestEEWSequence: (config) => ipcRenderer.invoke('sendTestEEWSequence', config),
+  importTestEEWFile: () => ipcRenderer.invoke('testEewImportFile'),
+  exportTestEEWFile: (suggestedName, content) =>
+    ipcRenderer.invoke('testEewExportFile', { suggestedName, content }),
   testPush: () => ipcRenderer.invoke('sendTestPush'),
   clearEEWHistory: () => ipcRenderer.send('clearEEWHistory'),
   searchEarthquake: (keyword) => ipcRenderer.send('searchEarthquake', keyword),

@@ -883,15 +883,224 @@ function testSound(soundName) {
   }
 }
 
-function showEEWTestModal() {
-  const modal = document.getElementById('eewTestModal');
+// 已导入的要石(kanameishi)模拟配置；非 null 时“发送”按 forms 时序推送多报
+let importedSimConfig = null;
+
+function toDatetimeLocalValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function setTestImportStatus(message, isError) {
+  const el = document.getElementById('eewTestImportStatus');
+  if (!el) return;
+  if (!message) {
+    el.style.display = 'none';
+    el.textContent = '';
+    el.classList.remove('error');
+    return;
+  }
+  el.textContent = message;
+  el.classList.toggle('error', !!isError);
+  el.style.display = 'block';
+}
+
+function isAutoMaxIntensity(value) {
+  if (value === undefined || value === null || value === '') return true;
+  const text = String(value).trim();
+  return text === '自动' || /^auto$/i.test(text);
+}
+
+// 用要石 forms 首报预填表单（仅用于预览；真正推送以完整配置时序为准）
+function fillTestFormFromKanameishi(form) {
+  const base = Date.now();
+  const origin = new Date(base + (Number(form.originDelay) || 0) * 1000);
+  const report = new Date(base + (Number(form.reportDelay) || 0) * 1000);
+  document.getElementById('testReportTime').value = toDatetimeLocalValue(report);
+  document.getElementById('testOriginTime').value = toDatetimeLocalValue(origin);
+  document.getElementById('testReportNum').value = 1;
+  document.getElementById('testHypoCenter').value = form.hypocenter || '';
+  document.getElementById('testLatitude').value = form.lat ?? '';
+  document.getElementById('testLongitude').value = form.lng ?? '';
+  document.getElementById('testMagnitude').value = form.magnitude ?? '';
+  document.getElementById('testDepth').value = form.depth ?? 10;
+  document.getElementById('testMaxIntensity').value = isAutoMaxIntensity(form.maxIntensity) ? '' : form.maxIntensity;
+}
+
+// 兼容单条预警 JSON（wolfx API 风格 / 内部字段命名），取第一个可用值
+function pickFirst(obj, keys) {
+  for (const key of keys) {
+    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+  }
+  return '';
+}
+
+function normalizeTimeInput(value) {
+  const text = String(value || '').trim().replace('T', ' ');
+  // "YYYY-MM-DD HH:mm:ss" → datetime-local 需要的 "YYYY-MM-DDTHH:mm"
+  return text.slice(0, 16).replace(' ', 'T');
+}
+
+function fillTestFormFromEEW(obj) {
+  const setVal = (id, value) => {
+    if (value !== '' && value !== null && value !== undefined) {
+      document.getElementById(id).value = value;
+    }
+  };
+  setVal('testReportTime', normalizeTimeInput(pickFirst(obj, ['ReportTime', 'report_time', 'AnnouncedTime'])));
+  setVal('testOriginTime', normalizeTimeInput(pickFirst(obj, ['OriginTime', 'origin_time'])));
+  setVal('testReportNum', pickFirst(obj, ['ReportNum', 'Serial']) || 1);
+  setVal('testHypoCenter', pickFirst(obj, ['HypoCenter', 'Hypocenter', 'hypocenter', 'location']));
+  setVal('testLatitude', pickFirst(obj, ['Latitude', 'latitude', 'lat']));
+  setVal('testLongitude', pickFirst(obj, ['Longitude', 'longitude', 'lng', 'lon']));
+  setVal('testMagnitude', pickFirst(obj, ['Magnitude', 'Magunitude', 'magnitude']));
+  setVal('testDepth', pickFirst(obj, ['Depth', 'depth']));
+  setVal('testMaxIntensity', pickFirst(obj, ['MaxIntensity', 'max_intensity', 'shindo', 'intensity']));
+}
+
+async function importTestEEWJson() {
+  try {
+    const res = await window.electronAPI.importTestEEWFile();
+    if (!res || res.canceled) return;
+    if (res.error) {
+      setTestImportStatus(t('test.import.readFail') + res.error, true);
+      showToast(t('test.import.readFail'), 'error');
+      return;
+    }
+    let obj;
+    try {
+      obj = JSON.parse(res.content);
+    } catch (error) {
+      setTestImportStatus(t('test.import.invalid'), true);
+      showToast(t('test.import.invalid'), 'error');
+      return;
+    }
+
+    if (obj && typeof obj === 'object' && Array.isArray(obj.forms) && obj.forms.length > 0) {
+      importedSimConfig = obj;
+      fillTestFormFromKanameishi(obj.forms[0]);
+      let message = t('test.import.loaded').replace('{n}', obj.forms.length);
+      if (obj.id) message += ` ID: ${obj.id}`;
+      if (obj.useShindo === true) message += `（${t('test.import.shindo')}）`;
+      if (isAutoMaxIntensity(obj.forms[0].maxIntensity)) message += `（${t('test.import.autoNote')}）`;
+      setTestImportStatus(message, false);
+      showToast(t('test.import.ok'), 'success');
+    } else if (
+      obj && typeof obj === 'object' &&
+      (pickFirst(obj, ['OriginTime', 'origin_time']) !== '' || pickFirst(obj, ['Latitude', 'latitude', 'lat']) !== '')
+    ) {
+      importedSimConfig = null;
+      fillTestFormFromEEW(obj);
+      setTestImportStatus(t('test.import.single'), false);
+      showToast(t('test.import.ok'), 'success');
+    } else {
+      setTestImportStatus(t('test.import.invalid'), true);
+      showToast(t('test.import.invalid'), 'error');
+    }
+  } catch (error) {
+    console.error('Import test EEW JSON failed:', error);
+    showToast(t('test.import.invalid'), 'error');
+  }
+}
+
+// 按要石标准导出当前表单（单报，原点为发震时刻，报告延迟=报告时间-发震时间）
+async function exportTestEEWJson() {
+  const hypoCenter = document.getElementById('testHypoCenter').value.trim();
+  const latitude = parseFloat(document.getElementById('testLatitude').value);
+  const longitude = parseFloat(document.getElementById('testLongitude').value);
+  const magnitude = parseFloat(document.getElementById('testMagnitude').value);
+  const depth = parseInt(document.getElementById('testDepth').value, 10);
+  const maxIntensity = parseInt(document.getElementById('testMaxIntensity').value, 10);
+
+  const required = [
+    ['testHypoCenter', hypoCenter],
+    ['testLatitude', latitude],
+    ['testLongitude', longitude],
+    ['testMagnitude', magnitude],
+    ['testDepth', depth],
+    ['testMaxIntensity', maxIntensity]
+  ];
+  const invalid = required.find(([, value]) => value === '' || value === null || Number.isNaN(value));
+  if (invalid) {
+    showToast(t('alert.test.incomplete'), 'error');
+    const el = document.getElementById(invalid[0]);
+    if (el) { el.focus(); if (typeof el.select === 'function') el.select(); }
+    return;
+  }
+
+  const rangeCheck = [
+    ['testLatitude', latitude, -90, 90],
+    ['testLongitude', longitude, -180, 180],
+    ['testMagnitude', magnitude, 0, 12],
+    ['testDepth', depth, 0, 1000],
+    ['testMaxIntensity', maxIntensity, 0, 12]
+  ];
+  const outOfRange = rangeCheck.find(([, value, min, max]) => value < min || value > max);
+  if (outOfRange) {
+    showToast(t('alert.test.invalidRange'), 'error');
+    const el = document.getElementById(outOfRange[0]);
+    if (el) { el.focus(); if (typeof el.select === 'function') el.select(); }
+    return;
+  }
+
+  let reportDelay = 0;
+  const reportTimeVal = document.getElementById('testReportTime').value;
+  const originTimeVal = document.getElementById('testOriginTime').value;
+  if (reportTimeVal && originTimeVal) {
+    const diff = (new Date(reportTimeVal).getTime() - new Date(originTimeVal).getTime()) / 1000;
+    if (Number.isFinite(diff)) reportDelay = Math.max(0, Math.round(diff));
+  }
+
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const idSuffix = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
 
-  document.getElementById('testReportTime').value = nowStr;
-  document.getElementById('testOriginTime').value = nowStr;
+  const config = {
+    id: `LaQuake${idSuffix}`,
+    title: 'LaQuake 模拟预警',
+    useShindo: false,
+    forms: [
+      {
+        originDelay: 0,
+        reportDelay,
+        isAssumption: false,
+        isWarn: false,
+        isCanceled: false,
+        hypocenter: hypoCenter,
+        lat: latitude,
+        lng: longitude,
+        depth,
+        magnitude,
+        maxIntensity
+      }
+    ]
+  };
 
+  try {
+    const res = await window.electronAPI.exportTestEEWFile(`${config.id}.json`, JSON.stringify(config, null, 2));
+    if (!res || res.canceled) return;
+    if (res.error) {
+      showToast(t('test.export.fail'), 'error');
+      return;
+    }
+    showToast(t('test.export.ok'), 'success');
+  } catch (error) {
+    console.error('Export test EEW JSON failed:', error);
+    showToast(t('test.export.fail'), 'error');
+  }
+}
+
+function showEEWTestModal() {
+  const modal = document.getElementById('eewTestModal');
+  if (importedSimConfig && Array.isArray(importedSimConfig.forms) && importedSimConfig.forms.length > 0) {
+    // 已加载要石配置：预览首报的相对时刻（基准=此刻）
+    fillTestFormFromKanameishi(importedSimConfig.forms[0]);
+  } else {
+    const now = new Date();
+    const nowStr = toDatetimeLocalValue(now);
+    document.getElementById('testReportTime').value = nowStr;
+    document.getElementById('testOriginTime').value = nowStr;
+  }
   modal.classList.add('show');
 }
 
@@ -900,7 +1109,23 @@ function closeEEWTestModal() {
   modal.classList.remove('show');
 }
 
-function sendEEWTest() {
+async function sendEEWTest() {
+  // 已导入要石配置：按 forms 中各报的 reportDelay 时序自动推送，不走单报校验
+  if (importedSimConfig) {
+    try {
+      const res = await window.electronAPI.sendTestEEWSequence(importedSimConfig);
+      if (res && res.ok) {
+        closeEEWTestModal();
+        showToast(t('test.sequence.sent').replace('{n}', res.count), 'success');
+      } else {
+        showToast(t('test.sequence.fail'), 'error');
+      }
+    } catch (error) {
+      console.error('Failed to run EEW simulation:', error);
+      showToast(t('test.sequence.fail'), 'error');
+    }
+    return;
+  }
   const fields = [
     { id: 'testReportTime', value: document.getElementById('testReportTime').value },
     { id: 'testReportNum', value: document.getElementById('testReportNum').value },

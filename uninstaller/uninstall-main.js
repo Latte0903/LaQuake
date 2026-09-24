@@ -10,7 +10,9 @@ const RUN_VALUE = 'LaQuake';
 const UNINSTALL_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\LaQuake';
 
 let uninsWindow = null;
-let cleanupBatPath = null;
+let cleanupHelperPath = null;
+let cleanupHelperStarted = false;
+let lastPurgeData = false;
 
 function getInstallDir() {
   if (app.isPackaged) return path.dirname(app.getPath('exe'));
@@ -73,6 +75,66 @@ function removeShortcuts() {
   }
 }
 
+function listLaQuakeProcesses() {
+  // 只枚举同名进程的 PID/PPID（PowerShell 在 Win7+ 均可用）
+  try {
+    const out = execFileSync('powershell.exe', [
+      '-NoProfile', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='LaQuake.exe'\" | " +
+        'Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'
+    ], { encoding: 'utf8', windowsHide: true });
+    let rows = JSON.parse(out.trim() || '[]');
+    if (!Array.isArray(rows)) rows = [rows];
+    return rows
+      .map((row) => ({ pid: Number(row.ProcessId), ppid: Number(row.ParentProcessId) }))
+      .filter((row) => Number.isInteger(row.pid));
+  } catch (error) {
+    return null;
+  }
+}
+
+// 从 rootPid 起按 ParentProcessId 递归收集整个进程树
+function collectDescendants(procs, rootPid) {
+  const tree = new Set([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const proc of procs) {
+      if (tree.has(proc.ppid) && !tree.has(proc.pid)) {
+        tree.add(proc.pid);
+        changed = true;
+      }
+    }
+  }
+  return tree;
+}
+
+function killRunningApp() {
+  // 卸载器自身也是 LaQuake.exe，且 Electron 是多进程架构：GPU、渲染、网络等
+  // 子进程的映像名同样是 LaQuake.exe，只是 PID 不同。旧命令
+  //   taskkill /F /T /IM LaQuake.exe /FI "PID ne 主pid"
+  // 只排除了主进程，会把自身的渲染/GPU 进程一起杀掉，表现为点击卸载后
+  // 1~2 秒页面内容消失、只剩纯色窗口并永久卡死。
+  // 正确做法：枚举同名进程，递归识别自身进程树并整体排除，只杀树外的
+  // 托盘主程序（/T 连带结束它自己的 Electron 子进程）。
+  const procs = listLaQuakeProcesses();
+  if (!procs) {
+    // 枚举失败时宁可不杀也不能按映像名盲杀（会再次误杀自身渲染/GPU 进程）；
+    // 残留的托盘进程由收尾 helper 与看门狗的后续轮次处理
+    return;
+  }
+  const selfTree = collectDescendants(procs, process.pid);
+  for (const proc of procs) {
+    if (selfTree.has(proc.pid)) continue;
+    try {
+      execFileSync('taskkill.exe', ['/F', '/T', '/PID', String(proc.pid)], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } catch (error) {}
+  }
+}
+
 function removeRegistry() {
   try {
     execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { stdio: 'ignore', windowsHide: true });
@@ -82,42 +144,38 @@ function removeRegistry() {
   } catch (error) {}
 }
 
-function quote(p) {
-  return '"' + String(p).replace(/"/g, '') + '"';
+function writeCleanupHelper() {
+  // 清理脚本以 ELECTRON_RUN_AS_NODE 运行：Node 原生支持 Unicode 路径，
+  // 避免 .cmd 批处理被系统 OEM 代码页（GBK）解析，导致含中文的安装目录
+  // 因路径乱码而被 rmdir 静默跳过。
+  const helperPath = path.join(os.tmpdir(), `laquake-uninstall-${Date.now()}.js`);
+  fs.copyFileSync(path.join(__dirname, 'uninstall-cleanup.js'), helperPath);
+  return helperPath;
 }
 
-function writeCleanupBat(installDir, userDataDir, purgeData) {
-  const lines = [
-    '@echo off',
-    'cd /d "%TEMP%"',
-    'timeout /t 1 /nobreak >nul 2>nul',
-    'taskkill /f /im LaQuake.exe >nul 2>nul',
-    'timeout /t 1 /nobreak >nul 2>nul'
-  ];
-  getShortcutPaths().forEach((lnk) => {
-    lines.push('del /f /q ' + quote(lnk) + ' >nul 2>nul');
-  });
-  lines.push('reg delete ' + quote(RUN_KEY) + ' /v ' + RUN_VALUE + ' /f >nul 2>nul');
-  lines.push('reg delete ' + quote(UNINSTALL_KEY) + ' /f >nul 2>nul');
-  lines.push(':laquake_retry_rmdir');
-  lines.push('rmdir /s /q ' + quote(installDir) + ' >nul 2>nul');
-  lines.push('if not exist ' + quote(installDir) + ' goto laquake_rmdir_done');
-  lines.push('timeout /t 1 /nobreak >nul 2>nul');
-  lines.push('goto laquake_retry_rmdir');
-  lines.push(':laquake_rmdir_done');
-  if (purgeData) {
-    lines.push('rmdir /s /q ' + quote(userDataDir) + ' >nul 2>nul');
+// 卸载步骤一成功就立即启动收尾脚本，并把本进程 PID 传给它等待。
+// 不能等到用户点“完成”：成功页标题栏 X 同样可以关窗，那样收尾脚本
+// 永远不会运行，表现为“显示卸载成功但文件全部残留”。
+function startCleanupHelper() {
+  if (cleanupHelperStarted || !cleanupHelperPath) return;
+  cleanupHelperStarted = true;
+  try {
+    spawn(process.execPath, [
+      cleanupHelperPath,
+      getInstallDir(),
+      getUserDataDir(),
+      lastPurgeData ? '1' : '0',
+      String(process.pid)
+    ], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ELECTRON_NO_ASAR: '1' }
+    }).unref();
+  } catch (error) {
+    cleanupHelperStarted = false;
+    throw error;
   }
-  lines.push(':laquake_selfdel');
-  lines.push('del /f /q "%~f0" >nul 2>nul');
-  lines.push('if not exist "%~f0" goto laquake_selfdel_done');
-  lines.push('ping 127.0.0.1 -n 2 >nul');
-  lines.push('goto laquake_selfdel');
-  lines.push(':laquake_selfdel_done');
-
-  const batPath = path.join(os.tmpdir(), `laquake-uninstall-${Date.now()}.cmd`);
-  fs.writeFileSync(batPath, lines.join('\r\n') + '\r\n', 'utf8');
-  return batPath;
 }
 
 function run() {
@@ -161,7 +219,8 @@ function run() {
       }
 
       send({ phase: 'prepare', percent: 25 });
-      await new Promise((r) => setTimeout(r, 400));
+      killRunningApp();
+      await new Promise((r) => setTimeout(r, 600));
 
       send({ phase: 'shortcuts', percent: 50 });
       removeShortcuts();
@@ -172,7 +231,9 @@ function run() {
       await new Promise((r) => setTimeout(r, 300));
 
       send({ phase: 'cleanup', percent: 95 });
-      cleanupBatPath = writeCleanupBat(getInstallDir(), getUserDataDir(), purgeData);
+      lastPurgeData = purgeData;
+      cleanupHelperPath = writeCleanupHelper();
+      startCleanupHelper();
 
       return { ok: true };
     } catch (error) {
@@ -180,17 +241,19 @@ function run() {
     }
   });
 
+  // 收尾脚本在卸载步骤成功时已经启动，这里只需退出；
+  // helper 会等待本进程 PID 退出后再开始删除
   ipcMain.on('unins-finish', () => {
-    if (cleanupBatPath) {
-      try {
-        spawn('cmd.exe', ['/c', cleanupBatPath], {
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: true
-        }).unref();
-      } catch (error) {}
-    }
     app.quit();
+  });
+
+  // 兜底：无论通过“完成”按钮、标题栏 X 还是其他方式退出，
+  // 只要卸载步骤已成功但收尾脚本没启动起来，退出前补启动
+  app.on('before-quit', () => {
+    if (!app.isPackaged || cleanupHelperStarted || !cleanupHelperPath) return;
+    try {
+      startCleanupHelper();
+    } catch (error) {}
   });
 
   app.whenReady().then(createUninstallWindow);

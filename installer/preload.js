@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('installerAPI', {
   winMinimize: () => ipcRenderer.send('win-minimize'),
   winClose: () => ipcRenderer.send('win-close'),
   pickDir: (currentPath) => ipcRenderer.invoke('pick-dir', currentPath),
+  resolveInstallDir: (chosenPath) => ipcRenderer.invoke('resolve-install-dir', chosenPath),
   loadTranslations: (lang) => ipcRenderer.invoke('load-translations', lang),
   autoLocate: () => ipcRenderer.invoke('auto-locate'),
   getContext: () => ipcRenderer.invoke('get-context'),

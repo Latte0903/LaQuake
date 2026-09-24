@@ -1110,6 +1110,24 @@
     .modal-button.confirm:hover {
       background-color: #2563eb;
     }
+
+    .test-import-status {
+      margin-top: 4px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      background-color: #172554;
+      border: 1px solid #2563eb;
+      color: #bfdbfe;
+      word-break: break-all;
+    }
+
+    .test-import-status.error {
+      background-color: #450a0a;
+      border-color: #dc2626;
+      color: #fecaca;
+    }
   </style>
 </head>
 <body>
@@ -1764,8 +1782,11 @@
           <label data-i18n="test.maxIntensity">最大烈度 (MaxIntensity)</label>
           <input type="number" class="modal-input" id="testMaxIntensity" value="6" min="0" max="12">
         </div>
+        <div class="test-import-status" id="eewTestImportStatus" style="display:none;"></div>
       </div>
       <div class="modal-footer">
+        <button class="modal-button cancel" onclick="importTestEEWJson()" data-i18n="test.importJson">导入JSON</button>
+        <button class="modal-button cancel" onclick="exportTestEEWJson()" data-i18n="test.exportJson">导出JSON</button>
         <button class="modal-button cancel" onclick="closeEEWTestModal()" data-i18n="test.cancel">取消</button>
         <button class="modal-button confirm" onclick="sendEEWTest()" data-i18n="test.send">发送测试预警</button>
       </div>
