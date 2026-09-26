@@ -60,7 +60,14 @@ async function buildAppPayload() {
     await run(`npx electron-builder --win --dir --${arch} "--config.directories.output=${workDir}"`, ROOT);
   }
 
-  const unpacked = path.join(workDir, 'win-unpacked');
+  // electron-builder --dir 的输出目录名随架构变化：
+  // x64→win-unpacked，ia32→win-ia32-unpacked，arm64→win-arm64-unpacked
+  const unpackedDirName = {
+    x64: 'win-unpacked',
+    ia32: 'win-ia32-unpacked',
+    arm64: 'win-arm64-unpacked'
+  }[arch];
+  const unpacked = path.join(workDir, unpackedDirName);
   if (!fssync.existsSync(unpacked)) {
     throw new Error('临时解包目录不存在，请去掉 --skip-app 重新构建');
   }

@@ -35,6 +35,8 @@
   "push.barkHint.text": "The server defaults to the official https://api.day.app/push; use your own /push endpoint for a self-hosted server. Copy device_key from the Bark app home page. When an alert triggers, the fixed JSON template above is sent as POST JSON with variables replaced automatically.",
   "push.pushUrl": "Push URL (POST JSON)",
   "push.jsonTemplate": "JSON Body",
+  "push.eewJsonTemplate": "Warning JSON Body",
+  "push.eqJsonTemplate": "Report JSON Body",
   "push.insertVar": "Click to insert a variable",
   "push.varMeaning": "Variable Reference",
   "push.varMeaning.text": "{TITLE} title {BODY} fixed body {FZSK} origin time {ZZMC} epicenter {ZHENJI} magnitude {LIEDU} epicenter intensity {YGLD} estimated local intensity {ZZJ} distance km {TIME} S-wave seconds {YHCD} shaking level {BXJY} safety advice",

@@ -564,6 +564,8 @@ async function fetchEQData() {
 const PUSH_TITLE = '【LaQuake】';
 const DEFAULT_BARK_ENDPOINT = 'https://api.day.app/push';
 const DEFAULT_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}';
+// 速报专用模板：地震已发生，不含倒计时（{TIME} 无意义），文案明确为"速报"
+const DEFAULT_EQ_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
 const PUSH_VAR_KEYS = ['TITLE', 'BODY', 'FZSK', 'ZZMC', 'ZHENJI', 'LIEDU', 'YGLD', 'ZZJ', 'TIME', 'YHCD', 'BXJY'];
 
 function buildSimpleBarkPayload(vars) {
@@ -640,7 +642,7 @@ function applyVarsToObject(obj, vars) {
   return obj;
 }
 
-async function sendPushNotification(vars) {
+async function sendPushNotification(vars, type = 'eew') {
   const mode = settings.get('pushMode', 'simple') === 'pro' ? 'pro' : 'simple';
   let url = '';
   let payload;
@@ -648,11 +650,15 @@ async function sendPushNotification(vars) {
   if (mode === 'pro') {
     url = (settings.get('pushUrl', '') || '').trim().replace(/\/+$/, '');
     if (!url) return;
+    // 预警与速报使用各自的模板：速报绝不能套用预警文案（紧急地震预警 + 倒计时）
+    const isEq = type === 'eq';
+    const defaultTpl = isEq ? DEFAULT_EQ_PUSH_JSON : DEFAULT_PUSH_JSON;
+    const settingKey = isEq ? 'eqPushJsonTemplate' : 'pushJsonTemplate';
     let template;
     try {
-      template = JSON.parse(settings.get('pushJsonTemplate', DEFAULT_PUSH_JSON) || DEFAULT_PUSH_JSON);
+      template = JSON.parse(settings.get(settingKey, defaultTpl) || defaultTpl);
     } catch (error) {
-      template = JSON.parse(DEFAULT_PUSH_JSON);
+      template = JSON.parse(defaultTpl);
     }
     payload = applyVarsToObject(template, vars);
   } else {
@@ -675,7 +681,7 @@ async function sendEEWPost(eew, localIntensity) {
     const userLon = settings.get('userLongitude', 104.07);
     const distance = geo.calculateDistance(userLat, userLon, eew.Latitude, eew.Longitude);
     const vars = buildEewPushVars(eew, localIntensity, distance);
-    await sendPushNotification(vars);
+    await sendPushNotification(vars, 'eew');
     console.log('EEW push sent successfully');
   } catch (error) {
     console.error('Failed to send EEW push:', error.message);
@@ -687,7 +693,7 @@ async function sendEQPost(eq, localIntensityValue, distanceValue) {
     const distance = Number(distanceValue !== undefined ? distanceValue : eq._distance) || 0;
     const localIntensity = Number(localIntensityValue !== undefined ? localIntensityValue : eq._localIntensity) || 0;
     const vars = buildEqPushVars(eq, localIntensity, distance);
-    await sendPushNotification(vars);
+    await sendPushNotification(vars, 'eq');
     console.log('EQ push sent successfully');
   } catch (error) {
     console.error('Failed to send EQ push:', error.message);
