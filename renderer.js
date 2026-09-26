@@ -1284,6 +1284,7 @@ function resetSettings() {
 }
 
 const DEFAULT_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}';
+const DEFAULT_EQ_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
 
 function loadPushSettingsUI() {
   const mode = settings.pushMode || 'simple';
@@ -1295,6 +1296,14 @@ function loadPushSettingsUI() {
   const tpl = settings.pushJsonTemplate;
   document.getElementById('pushJsonTemplate').value =
     tpl === undefined || tpl === null || String(tpl).trim() === '' ? DEFAULT_PUSH_JSON : tpl;
+  const eqTpl = settings.eqPushJsonTemplate;
+  document.getElementById('eqPushJsonTemplate').value =
+    eqTpl === undefined || eqTpl === null || String(eqTpl).trim() === '' ? DEFAULT_EQ_PUSH_JSON : eqTpl;
+  // 记录最后聚焦的模板编辑框，供变量插入按钮选择目标
+  ['pushJsonTemplate', 'eqPushJsonTemplate'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('focus', () => { lastFocusedPushTextarea = el; });
+  });
   switchPushMode(mode);
 }
 
@@ -1310,8 +1319,11 @@ function switchPushMode(mode) {
   }
 }
 
+// 记录最后聚焦的模板编辑框，变量插入按钮据此选择目标
+let lastFocusedPushTextarea = null;
+
 function insertPushVar(token) {
-  const textarea = document.getElementById('pushJsonTemplate');
+  const textarea = lastFocusedPushTextarea || document.getElementById('pushJsonTemplate');
   const start = textarea.selectionStart !== null ? textarea.selectionStart : textarea.value.length;
   const end = textarea.selectionEnd !== null ? textarea.selectionEnd : textarea.value.length;
   textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end);
@@ -1327,19 +1339,22 @@ function collectPushSettings() {
     barkUrl: document.getElementById('barkUrl').value.trim() || 'https://api.day.app/push',
     barkDeviceKey: document.getElementById('barkDeviceKey').value.trim(),
     pushUrl: document.getElementById('pushUrl').value.trim(),
-    pushJsonTemplate: document.getElementById('pushJsonTemplate').value
+    pushJsonTemplate: document.getElementById('pushJsonTemplate').value,
+    eqPushJsonTemplate: document.getElementById('eqPushJsonTemplate').value
   };
 }
 
 function savePushSettings() {
   const updated = collectPushSettings();
   if (updated.pushMode === 'pro') {
-    try {
-      JSON.parse(updated.pushJsonTemplate);
-    } catch (error) {
-      showToast(t('push.jsonInvalid'), 'error', 3200);
-      document.getElementById('pushJsonTemplate').focus();
-      return;
+    for (const id of ['pushJsonTemplate', 'eqPushJsonTemplate']) {
+      try {
+        JSON.parse(updated[id === 'pushJsonTemplate' ? 'pushJsonTemplate' : 'eqPushJsonTemplate']);
+      } catch (error) {
+        showToast(t('push.jsonInvalid'), 'error', 3200);
+        document.getElementById(id).focus();
+        return;
+      }
     }
   } else if (!updated.barkDeviceKey) {
     showToast(t('push.deviceKey.required'), 'error');
@@ -1359,12 +1374,14 @@ function savePushSettings() {
 async function testPushSettings() {
   const updated = collectPushSettings();
   if (updated.pushMode === 'pro') {
-    try {
-      JSON.parse(updated.pushJsonTemplate);
-    } catch (error) {
-      showToast(t('push.jsonInvalid'), 'error', 3200);
-      document.getElementById('pushJsonTemplate').focus();
-      return;
+    for (const id of ['pushJsonTemplate', 'eqPushJsonTemplate']) {
+      try {
+        JSON.parse(updated[id === 'pushJsonTemplate' ? 'pushJsonTemplate' : 'eqPushJsonTemplate']);
+      } catch (error) {
+        showToast(t('push.jsonInvalid'), 'error', 3200);
+        document.getElementById(id).focus();
+        return;
+      }
     }
   } else if (!updated.barkDeviceKey) {
     showToast(t('push.deviceKey.required'), 'error');

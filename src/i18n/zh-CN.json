@@ -35,6 +35,8 @@
   "push.barkHint.text": "服务器地址默认官方 https://api.day.app/push，自建服务器填写对应 /push 地址；device_key 在 Bark APP 首页复制。预警触发时将以 POST JSON 方式发送上方固定模板，关键字段自动替换。",
   "push.pushUrl": "推送链接（POST JSON）",
   "push.jsonTemplate": "JSON 内容",
+  "push.eewJsonTemplate": "预警 JSON 内容",
+  "push.eqJsonTemplate": "速报 JSON 内容",
   "push.insertVar": "点击插入变量",
   "push.varMeaning": "变量说明",
   "push.varMeaning.text": "{TITLE}标题 {BODY}固定正文 {FZSK}发震时刻 {ZZMC}震中名称 {ZHENJI}震级 {LIEDU}震中烈度 {YGLD}预估本地烈度 {ZZJ}震中距km {TIME}横波到达秒数 {YHCD}摇晃程度 {BXJY}避险建议",

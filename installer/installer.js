@@ -125,6 +125,7 @@ const STEPS = ['welcome', 'language', 'mode', 'agreement', 'dataSource', 'geo', 
 const RAIL_ORDER = ['language', 'mode', 'agreement', 'dataSource', 'geo', 'appearance', 'ai', 'push', 'options'];
 
 const DEFAULT_PUSH_TEMPLATE = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}';
+const DEFAULT_EQ_PUSH_TEMPLATE = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
 
 const SWITCH_MAP = {
   swEewCWA: 'eewCWA',
@@ -181,6 +182,7 @@ const model = {
   barkDeviceKey: '',
   pushUrl: '',
   pushJsonTemplate: DEFAULT_PUSH_TEMPLATE,
+  eqPushJsonTemplate: DEFAULT_EQ_PUSH_TEMPLATE,
   installDir: '',
   autoStart: false,
   desktopShortcut: true,
@@ -498,7 +500,8 @@ function buildConfig() {
     barkUrl: model.barkUrl || 'https://api.day.app/push',
     barkDeviceKey: model.barkDeviceKey || '',
     pushUrl: model.pushUrl || '',
-    pushJsonTemplate: model.pushJsonTemplate || DEFAULT_PUSH_TEMPLATE
+    pushJsonTemplate: model.pushJsonTemplate || DEFAULT_PUSH_TEMPLATE,
+    eqPushJsonTemplate: model.eqPushJsonTemplate || DEFAULT_EQ_PUSH_TEMPLATE
   };
 
   return {
@@ -647,7 +650,7 @@ async function init() {
       'userLatitude', 'userLongitude', 'pWaveSpeed', 'sWaveSpeed', 'earthRadius',
       'titleBarStyle', 'floatingNav',
       'aiDomain', 'aiFullUrl', 'aiApiKey', 'aiModel',
-      'pushMode', 'barkUrl', 'barkDeviceKey', 'pushUrl', 'pushJsonTemplate'
+      'pushMode', 'barkUrl', 'barkDeviceKey', 'pushUrl', 'pushJsonTemplate', 'eqPushJsonTemplate'
     ].forEach((key) => {
       if (ex[key] !== undefined && ex[key] !== null) model[key] = ex[key];
     });
