@@ -49,6 +49,21 @@ class SettingsManager {
       minimizeToTray: true,
       titleBarStyle: 'windows',
       floatingNav: false,
+      // 地图功能分级开关：总开关关闭则全部地图都不渲染；三个子开关分别控制地图页/事件详情页/预警弹窗
+      mapEnabled: true,
+      mapPageEnabled: true,
+      mapDetailEnabled: true,
+      mapAlertEnabled: true,
+      // 地图图源：默认 OpenStreetMap（无需密钥）；切换百度/高德/Mapbox/Google 需填入自有 Key/Token
+      mapProvider: 'osm',
+      mapApiKeys: {
+        baidu: '',
+        amap: '',
+        mapbox: '',
+        google: ''
+      },
+      // 地图页右下角主权标注声明开关（仅大陆坐标时可能展示，关闭后地图页不显示）
+      mapPageNotice: true,
       windowSize: { width: 800, height: 600 }
     };
   }

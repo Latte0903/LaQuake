@@ -770,9 +770,9 @@ function createAlertWindow() {
 
   alertWindow = new BrowserWindow({
     width: 420,
-    height: 560,
+    height: 740,
     minWidth: 380,
-    minHeight: 520,
+    minHeight: 680,
     frame: false,
     resizable: true,
     show: false,
@@ -852,7 +852,7 @@ function handleEEWAlert(eew, localIntensity, source) {
 
   const isCritical = epicenterIntensity >= 6;
 
-  triggerAlertWindow(eew, localIntensity, distance, wave.sWaveSeconds, wave.arrivalMs, isCritical);
+  triggerAlertWindow(eew, localIntensity, distance, wave.sWaveSeconds, wave.arrivalMs, isCritical, wave.originMs);
   playNamedSound(isCritical ? 'critical' : 'alert');
 }
 
@@ -883,7 +883,7 @@ function playNamedSound(soundName, options) {
   playSoundInWindow(mainWindow, filePath);
 }
 
-function triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, arrivalMs, isCritical) {
+function triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, arrivalMs, isCritical, originMs) {
   const currentSerial = currentEEW ? (currentEEW.Serial || currentEEW.ReportNum || 0) : 0;
   const newSerial = eew.Serial || eew.ReportNum || 0;
 
@@ -898,17 +898,27 @@ function triggerAlertWindow(eew, localIntensity, distance, sWaveSeconds, arrival
   // 给渲染层的到达时刻换算到本机时钟轴（渲染层直接用 Date.now() 与之比较），
   // 使客户端时钟偏差的修正在两端保持一致
   const arrivalTimestamp = Number.isFinite(arrivalMs) ? arrivalMs - serverClockOffset : null;
+  // 发震时刻同样换算到本机时钟轴，供地图 P/S 波扩散与倒计时共用同一时间基准
+  const originMsLocal = Number.isFinite(originMs) ? originMs - serverClockOffset : null;
 
-  showAlertWindow({
+  const alertPayload = {
     eew,
     localIntensity,
     distance,
     sWaveSeconds,
     arrivalTimestamp,
+    originMsLocal,
     isCritical,
     yhcd: intensityLib.getShakeDegree(localIntensity),
     bxjy: intensityLib.getAvoidanceAdvice(localIntensity)
-  });
+  };
+
+  showAlertWindow(alertPayload);
+
+  // 同步推送给主窗口，地图页据此绘制实时横波/纵波扩散
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('eewAlert', alertPayload);
+  }
 
   if (sWaveTimer) clearInterval(sWaveTimer);
   sWaveTimer = null;
@@ -1129,7 +1139,7 @@ ipcMain.on('sendTestEEW', async (event, testData) => {
   }
 });
 
-// ===== 模拟预警 JSON 导入导出 / 要石(kanameishi)多报时序模拟 =====
+// ===== 模拟预警 JSON 导入导出 / 多报时序模拟 =====
 const testSimTimers = new Set();
 
 // 按数据源 UTC 偏移生成对应的“墙上时间”字符串（不依赖本机时区），
@@ -1147,7 +1157,7 @@ function isAutoIntensityValue(value) {
   return text === '自动' || /^auto$/i.test(text);
 }
 
-// 把要石标准 forms 中的一报构造成内部 EEW 对象
+// 把多报时序 forms 中的一报构造成内部 EEW 对象
 function buildSimEEW(form, index, eventId, source, originStr, reportStr) {
   const eew = {
     EventID: eventId,

@@ -1,6 +1,6 @@
 {
   "name": "laquake",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "地震预警接收与地震速报信息查询软件",
   "main": "main.js",
   "scripts": {
@@ -51,6 +51,7 @@
       "alert.js",
       "uninstaller/**/*",
       "src/**/*",
+      "vendor/**/*",
       "Media/**/*",
       "Fonts/**/*",
       "API列表.txt",

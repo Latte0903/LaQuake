@@ -249,7 +249,17 @@ function syncPageFromModel(pageId) {
     $('chkAutoStart').checked = model.autoStart;
     $('chkLaunch').checked = model.launchAfter;
   }
-  if (pageId === 'agreement') $('agreeCheck').checked = model.agreed;
+  if (pageId === 'agreement') {
+    $('agreeCheck').checked = model.agreed;
+    // 仅当用户所填经纬度位于中国大陆时，展示海外地图主权标注免责声明
+    const mapNotice = $('agreementMapDisclaimer');
+    if (mapNotice) {
+      const lat = Number(model.userLatitude), lon = Number(model.userLongitude);
+      const inMainland = Number.isFinite(lat) && Number.isFinite(lon) &&
+        lat >= 18 && lat <= 54 && lon >= 73 && lon <= 135;
+      mapNotice.style.display = inMainland ? 'block' : 'none';
+    }
+  }
   if (pageId === 'language') {
     document.querySelectorAll('[data-lang]').forEach((el) => {
       el.classList.toggle('selected', el.getAttribute('data-lang') === model.language);
