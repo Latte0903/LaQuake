@@ -70,11 +70,92 @@ function startCountdown(seconds, arrivalTs) {
   }
 }
 
+let alertMapCtrl = null;
+let alertMapInited = false;
+
+function getAlertSettings() {
+  try {
+    return window.electronAPI && window.electronAPI.getSettings ? window.electronAPI.getSettings() : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function getAlertCoord(eew) {
+  const lat = parseFloat(eew.Latitude !== undefined ? eew.Latitude : eew.latitude);
+  const lon = parseFloat(eew.Longitude !== undefined ? eew.Longitude : eew.longitude);
+  return { lat, lon };
+}
+
+function renderAlertMap(data) {
+  // 地图总开关或“预警弹窗地图”子开关关闭时：折叠整个地图区，
+  // 不创建 Leaflet 实例、不请求任何瓦片（多报续报时会按最新设置重新判定）
+  const wrap = document.getElementById('alertMapWrap');
+  const s = getAlertSettings();
+  const mapAllowed = !!window.SeismicMap && s.mapEnabled !== false && s.mapAlertEnabled !== false;
+  if (wrap) wrap.style.display = mapAllowed ? '' : 'none';
+  if (!mapAllowed) return;
+
+  const eew = data.eew || {};
+  const coord = getAlertCoord(eew);
+  if (isNaN(coord.lat) || isNaN(coord.lon)) return;
+
+  const hypocenter = eew.HypoCenter || eew.Hypocenter || eew.hypocenter || '未知地区';
+  const magnitude = eew.Magnitude || eew.Magunitude || eew.magnitude || '--';
+
+  let originMs = Number.isFinite(data.originMsLocal)
+    ? data.originMsLocal
+    : window.SeismicMap.getEventOriginMs(eew);
+  if (!Number.isFinite(originMs)) originMs = Date.now();
+
+  const depthRaw = parseFloat(eew.Depth !== undefined ? eew.Depth : eew.depth);
+  const depth = isNaN(depthRaw) ? 10 : depthRaw;
+
+  if (!alertMapInited) {
+    alertMapCtrl = window.SeismicMap.create(
+      document.getElementById('alertSeismicMap'),
+      s
+    );
+    alertMapInited = true;
+  }
+
+  alertMapCtrl.showWarning({
+    lat: coord.lat,
+    lng: coord.lon,
+    title: hypocenter + ' M' + magnitude,
+    originMs: originMs,
+    depth: depth,
+    pSpeed: Number(s.pWaveSpeed) || 7,
+    sSpeed: Number(s.sWaveSpeed) || 4,
+    earthRadius: Number(s.earthRadius) || 6371,
+    color: data.isCritical ? '#ef4444' : '#f59e0b',
+    waves: true
+  });
+
+  const userLat = Number(s.userLatitude);
+  const userLon = Number(s.userLongitude);
+  if (isFinite(userLat) && isFinite(userLon)) {
+    alertMapCtrl.showUser(userLat, userLon);
+  }
+
+  if (!alertMapCtrl._everFitted) {
+    alertMapCtrl._everFitted = true;
+    setTimeout(() => {
+      alertMapCtrl.invalidate();
+      alertMapCtrl.fitMarkers({ maxZoom: 9 });
+    }, 60);
+  } else {
+    setTimeout(() => alertMapCtrl.invalidate(), 30);
+  }
+}
+
 function renderAlert(data) {
   const eew = data.eew || {};
   const isCritical = !!data.isCritical;
   document.body.classList.toggle('normal', !isCritical);
   document.body.classList.toggle('critical', isCritical);
+
+  renderAlertMap(data);
 
   document.getElementById('alertBadge').textContent = isCritical ? '紧急地震预警' : '地震预警';
   const reportNum = eew.ReportNum || eew.Serial || 0;

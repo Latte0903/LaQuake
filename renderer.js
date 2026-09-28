@@ -154,6 +154,9 @@ function changeLanguage(lang) {
     loadEEWHistory();
   } else if (currentPage === 'eq') {
     loadEQHistory();
+  } else if (currentPage === 'map' && mapPageInited) {
+    renderMapSidebar();
+    updateWaveStatus();
   }
 }
 
@@ -210,6 +213,21 @@ function applySettings() {
   document.getElementById('sWaveSpeed').value = settings.sWaveSpeed || 4;
   document.getElementById('earthRadius').value = settings.earthRadius || 6371;
 
+  const mapKeys = settings.mapApiKeys || {};
+  toggleSwitchState('mapEnabled', settings.mapEnabled !== false);
+  toggleSwitchState('mapPageEnabled', settings.mapPageEnabled !== false);
+  toggleSwitchState('mapDetailEnabled', settings.mapDetailEnabled !== false);
+  toggleSwitchState('mapAlertEnabled', settings.mapAlertEnabled !== false);
+  updateMapToggleStates();
+  const mapProviderEl = document.getElementById('mapProvider');
+  if (mapProviderEl) mapProviderEl.value = settings.mapProvider || 'osm';
+  document.getElementById('mapKeyBaidu').value = mapKeys.baidu || '';
+  document.getElementById('mapKeyAmap').value = mapKeys.amap || '';
+  document.getElementById('mapKeyMapbox').value = mapKeys.mapbox || '';
+  document.getElementById('mapKeyGoogle').value = mapKeys.google || '';
+  toggleSwitchState('mapPageNotice', settings.mapPageNotice !== false);
+  onMapProviderChange();
+
   toggleSwitchState('autoStart', getActualAutoStartState());
   toggleSwitchState('autoLocate', settings.autoLocate || false);
   toggleSwitchState('soundEnabled', settings.soundEnabled || true);
@@ -219,6 +237,7 @@ function applySettings() {
   toggleSwitchState('eewCWA', settings.eewCWA || false);
   toggleSwitchState('floatingNav', settings.floatingNav || false);
   applyAppearance();
+  updateMapSovereigntyNotice();
 
   document.getElementById('aiDomain').value = settings.aiDomain || '';
   document.getElementById('aiApiKey').value = settings.aiApiKey || '';
@@ -254,6 +273,7 @@ function setupEventListeners() {
     if (currentPage !== 'settings' && currentPage !== 'detail') {
       renderEEWList(data);
     }
+    if (mapPageInited) syncLatestEewMarker();
   });
 
   window.electronAPI.onEQHistory((data) => {
@@ -261,7 +281,22 @@ function setupEventListeners() {
     if (currentPage !== 'settings' && currentPage !== 'detail') {
       renderEQList(data);
     }
+    if (mapPageInited) {
+      refreshMapReports();
+      renderMapSidebar();
+    }
   });
+
+  // 收到实时地震预警：驱动地图页圆圈标记与 P/S 波扩散
+  if (window.electronAPI.onEEWAlert) {
+    window.electronAPI.onEEWAlert((payload) => {
+      handleLiveAlert(payload);
+    });
+  }
+
+  // 手动关闭地图右上角预警信息卡（销毁波形）
+  const wsCloseBtn = document.getElementById('wsClose');
+  if (wsCloseBtn) wsCloseBtn.addEventListener('click', dismissLiveWarning);
 
   window.electronAPI.onPlaySound = (filePath) => {
     playSound(filePath);
@@ -283,6 +318,7 @@ function setupEventListeners() {
         statusEl.textContent = data.label;
         statusEl.style.color = '#34d399';
       }
+      updateMapSovereigntyNotice();
     });
   }
   
@@ -310,6 +346,14 @@ function setupEventListeners() {
   });
   
   document.addEventListener('click', (e) => {
+    const sidebarItem = e.target.closest('.map-sidebar-item');
+    if (sidebarItem) {
+      const index = parseInt(sidebarItem.dataset.index);
+      if (!isNaN(index) && allEQData[index]) {
+        showDetail('eq', allEQData[index]);
+      }
+      return;
+    }
     const listItem = e.target.closest('.list-item');
     if (listItem) {
       const type = listItem.dataset.type;
@@ -338,7 +382,7 @@ function switchPage(pageId) {
   });
   
   const navItems = document.querySelectorAll('.nav-item');
-  const navMap = { 'eew': 0, 'eq': 1, 'push': 2, 'settings': 3 };
+  const navMap = { 'eew': 0, 'eq': 1, 'map': 2, 'push': 3, 'settings': 4 };
   if (navItems[navMap[pageId]]) {
     navItems[navMap[pageId]].classList.add('active');
   }
@@ -347,6 +391,8 @@ function switchPage(pageId) {
     loadEEWHistory();
   } else if (pageId === 'eq') {
     loadEQHistory();
+  } else if (pageId === 'map') {
+    openMapPage();
   } else if (pageId === 'settings') {
     openSettingsMenu();
   }
@@ -576,7 +622,7 @@ function goBack() {
   document.getElementById(`page-${currentPage}`).classList.add('active');
   
   const navItems = document.querySelectorAll('.nav-item');
-  const navMap = { 'eew': 0, 'eq': 1, 'push': 2, 'settings': 3 };
+  const navMap = { 'eew': 0, 'eq': 1, 'map': 2, 'push': 3, 'settings': 4 };
   if (navItems[navMap[currentPage]]) {
     navItems[navMap[currentPage]].classList.add('active');
   }
@@ -726,6 +772,9 @@ function renderDetail(type, item) {
   } else {
     eqSection.style.display = 'none';
   }
+
+  currentDetailMain = mainData;
+  updateDetailMap(mainData, overviewLocation);
 }
 
 function searchEarthquake() {
@@ -819,6 +868,15 @@ function toggleSwitch(id) {
   if (id === 'floatingNav') {
     document.body.classList.toggle('floating-nav', isActive);
   }
+  if (id === 'mapPageNotice') {
+    settings.mapPageNotice = isActive;
+    updateMapSovereigntyNotice();
+  }
+  if (['mapEnabled', 'mapPageEnabled', 'mapDetailEnabled', 'mapAlertEnabled'].includes(id)) {
+    settings[id] = isActive;
+    updateMapToggleStates();
+    applyMapFeatureToggles();
+  }
 }
 
 let locating = false;
@@ -855,6 +913,7 @@ async function locateNow(fromSwitch = false) {
         settings.autoLocate = true;
         persistSetting({ autoLocate: true, userLatitude: lat, userLongitude: lon });
       }
+      updateMapSovereigntyNotice();
       showToast(t('settings.autoLocate.success', label, latText, lonText), 'success');
     } else {
       finishFail();
@@ -883,7 +942,423 @@ function testSound(soundName) {
   }
 }
 
-// 已导入的要石(kanameishi)模拟配置；非 null 时“发送”按 forms 时序推送多报
+/* ==================== 地图功能 ==================== */
+let mainMapCtrl = null;
+let detailMapCtrl = null;
+let currentDetailMain = null;
+let mapPageInited = false;
+let liveAlertPayload = null;
+let mapStatusTimer = null;
+let mapReportsSig = '';
+let mapSidebarSig = '';
+let mapStaticEewId = null;
+
+function getMapSettings() {
+  try {
+    return window.electronAPI.getSettings ? window.electronAPI.getSettings() : settings;
+  } catch (error) {
+    return settings;
+  }
+}
+
+function onMapProviderChange() {
+  const select = document.getElementById('mapProvider');
+  if (!select) return;
+  ['baidu', 'amap', 'mapbox', 'google'].forEach((provider) => {
+    const row = document.getElementById('mapKeyRow-' + provider);
+    if (row) row.classList.toggle('visible', select.value === provider);
+  });
+}
+
+// 地图功能分级开关判定：总开关关闭时所有地图均不渲染
+function isMapGlobalEnabled() {
+  return settings.mapEnabled !== false;
+}
+function isMapPageEnabled() {
+  return isMapGlobalEnabled() && settings.mapPageEnabled !== false;
+}
+function isMapDetailEnabled() {
+  return isMapGlobalEnabled() && settings.mapDetailEnabled !== false;
+}
+function isMapAlertEnabled() {
+  return isMapGlobalEnabled() && settings.mapAlertEnabled !== false;
+}
+
+// 地图设置页内开关联动：总开关关闭时三个子开关置灰
+function updateMapToggleStates() {
+  const globalOn = isMapGlobalEnabled();
+  ['mapTogglePageRow', 'mapToggleDetailRow', 'mapToggleAlertRow'].forEach((rowId) => {
+    const row = document.getElementById(rowId);
+    if (row) row.classList.toggle('disabled-row', !globalOn);
+  });
+}
+
+// 开关切换后实时联动当前可见页面（预警弹窗为独立窗口，每次收到预警时自行读取最新设置判定）
+function applyMapFeatureToggles() {
+  if (currentPage === 'map') {
+    openMapPage();
+  } else if (currentPage === 'detail' && currentDetailMain) {
+    updateDetailMap(currentDetailMain);
+  }
+}
+
+// 仅当用户经纬度位于中国大陆时，在地图设置、免责声明弹窗展示主权标注声明；
+// 地图页额外受“地图页显示主权标注声明”开关控制
+function updateMapSovereigntyNotice() {
+  const lat = parseFloat(settings.userLatitude);
+  const lon = parseFloat(settings.userLongitude);
+  const inMainland = !!(window.SeismicMap && window.SeismicMap.isInMainlandChina(lat, lon));
+  const mapPageVisible = inMainland && settings.mapPageNotice !== false;
+  const elMapPage = document.getElementById('mapPageNoticeBar');
+  if (elMapPage) elMapPage.style.display = mapPageVisible ? '' : 'none';
+  ['mapDisclaimerRow', 'disclaimerMapItem', 'disclaimerMapTitle'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = inMainland ? '' : 'none';
+  });
+}
+
+function severityColor(value) {
+  if (value >= 5) return '#ef4444';
+  if (value >= 3) return '#f59e0b';
+  return '#3b82f6';
+}
+
+function getEventCoord(item) {
+  if (!item) return { lat: NaN, lon: NaN };
+  const lat = parseFloat(item.Latitude !== undefined ? item.Latitude : item.latitude);
+  const lon = parseFloat(item.Longitude !== undefined ? item.Longitude : item.longitude);
+  return { lat, lon };
+}
+
+function openMapPage() {
+  // 地图页被关闭：显示占位、不初始化地图（右侧历史速报栏仍可用）
+  if (!isMapPageEnabled()) {
+    showMapPagePlaceholder(true);
+    renderMapSidebar();
+    return;
+  }
+  showMapPagePlaceholder(false);
+  if (!window.SeismicMap) return;
+  if (!mapPageInited) {
+    initMapPage();
+    mapPageInited = true;
+  } else if (mainMapCtrl) {
+    refreshMapReports();
+    renderMapSidebar();
+    // 从关闭态恢复时，若实时预警仍在波形窗口内则恢复 P/S 波渲染
+    if (liveAlertPayload && isLiveAlertRecent(liveAlertPayload)) {
+      renderLiveWarning(liveAlertPayload, false);
+    } else {
+      syncLatestEewMarker();
+    }
+    setTimeout(() => mainMapCtrl.invalidate(), 50);
+  }
+}
+
+function showMapPagePlaceholder(show) {
+  const ph = document.getElementById('mapPagePlaceholder');
+  const mapEl = document.getElementById('mainSeismicMap');
+  if (ph) ph.style.display = show ? 'flex' : 'none';
+  if (mapEl) mapEl.style.visibility = show ? 'hidden' : '';
+  const legend = document.querySelector('.map-main .map-legend');
+  const status = document.getElementById('mapWaveStatus');
+  const notice = document.getElementById('mapPageNoticeBar');
+  if (legend) legend.style.display = show ? 'none' : '';
+  if (status) status.classList.remove('active');
+  if (show && notice) {
+    notice.style.display = 'none';
+  } else {
+    updateMapSovereigntyNotice();
+  }
+}
+
+function initMapPage() {
+  const s = getMapSettings();
+  mainMapCtrl = window.SeismicMap.create(document.getElementById('mainSeismicMap'), s);
+  mainMapCtrl.showUser(Number(s.userLatitude), Number(s.userLongitude));
+  mapReportsSig = '';
+  mapSidebarSig = '';
+  mapStaticEewId = null;
+  refreshMapReports();
+  renderMapSidebar();
+  if (liveAlertPayload && isLiveAlertRecent(liveAlertPayload)) {
+    mapStaticEewId = '__live__';
+    renderLiveWarning(liveAlertPayload, false);
+  } else {
+    syncLatestEewMarker();
+    mainMapCtrl.fitMarkers({ maxZoom: 7 });
+  }
+  setTimeout(() => { if (mainMapCtrl) mainMapCtrl.invalidate(); }, 60);
+  if (!mapStatusTimer) mapStatusTimer = setInterval(updateWaveStatus, 250);
+}
+
+function refreshMapReports() {
+  if (!mainMapCtrl) return;
+  const top = (allEQData || []).slice(0, 10);
+  // 轮询每秒广播历史，签名不变则不重建标记（避免闪烁与提示被打断）
+  const sig = top.map((item) => {
+    const c = getEventCoord(item);
+    return [item.EventID || item._id || '', c.lat, c.lon,
+      item.magnitude || item.Magnitude || '',
+      getEpicenterInfo(item).value].join(',');
+  }).join(';');
+  if (sig === mapReportsSig) return;
+  mapReportsSig = sig;
+  const reports = top.map((item, index) => {
+    const coord = getEventCoord(item);
+    if (isNaN(coord.lat) || isNaN(coord.lon)) return null;
+    const location = item.location || item.placeName || item.place_name || item.Location || t('detail.unknown');
+    const magnitude = item.magnitude || item.Magnitude || '0';
+    const epicenter = getEpicenterInfo(item);
+    return {
+      id: String(index),
+      lat: coord.lat,
+      lng: coord.lon,
+      color: severityColor(epicenter.value),
+      title: `${location} · M${magnitude} · ${formatTime(item.time || item.Time || '')}`,
+      onClick: () => showDetail('eq', item)
+    };
+  }).filter(Boolean);
+  mainMapCtrl.setReports(reports);
+}
+
+function renderMapSidebar() {
+  const el = document.getElementById('mapSidebarList');
+  if (!el) return;
+  if (!allEQData || allEQData.length === 0) {
+    el.innerHTML = `<div class="empty-state" style="height:160px;"><p>${t('eq.empty')}</p></div>`;
+    mapSidebarSig = '';
+    return;
+  }
+  // 内容签名不变则跳过重建，保持滚动位置
+  const first = allEQData[0] || {};
+  const sig = allEQData.length + '|' + (first.EventID || '') + '|' + (first.time || first.Time || '');
+  if (sig === mapSidebarSig) return;
+  mapSidebarSig = sig;
+  el.innerHTML = allEQData.map((item, index) => {
+    const location = item.location || item.placeName || item.place_name || item.Location || t('detail.unknown');
+    const magnitude = item.magnitude || item.Magnitude || '0';
+    const epicenter = getEpicenterInfo(item);
+    const color = severityColor(epicenter.value);
+    return `
+      <div class="map-sidebar-item" data-index="${index}" style="border-left-color:${color};">
+        <div class="msi-title">${location}</div>
+        <div class="msi-meta">
+          <span>${formatTime(item.time || item.Time || '')}</span>
+          <span>M${magnitude}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function showLatestEewMarker() {
+  if (!mainMapCtrl) return;
+  const eew = allEEWData && allEEWData[0];
+  if (!eew) {
+    mainMapCtrl.clearWarning();
+    return;
+  }
+  const coord = getEventCoord(eew);
+  if (isNaN(coord.lat) || isNaN(coord.lon)) {
+    mainMapCtrl.clearWarning();
+    return;
+  }
+  const hypocenter = eew.HypoCenter || eew.Hypocenter || eew.hypocenter || t('detail.unknownEpicenter');
+  const magnitude = eew.Magnitude || eew.magnitude || eew.Magunitude || '0';
+  mainMapCtrl.showWarning({
+    lat: coord.lat,
+    lng: coord.lon,
+    title: `${hypocenter} · M${magnitude}`,
+    color: '#f59e0b',
+    waves: false
+  });
+}
+
+// 仅在最新一条历史预警变化时重建圆圈标记，避免每秒轮询反复刷新
+function syncLatestEewMarker() {
+  if (!mainMapCtrl) return;
+  if (liveAlertPayload && isLiveAlertRecent(liveAlertPayload)) {
+    mapStaticEewId = '__live__';
+    return;
+  }
+  const eew = allEEWData && allEEWData[0];
+  const id = eew ? ((eew.EventID || '') + '#' + (eew.ReportNum || eew.Serial || 0)) : null;
+  if (id === mapStaticEewId) return;
+  mapStaticEewId = id;
+  showLatestEewMarker();
+}
+
+function handleLiveAlert(payload) {
+  if (!payload || !payload.eew) return;
+  liveAlertPayload = payload;
+  mapStaticEewId = '__live__';
+  // 地图页关闭时不驱动隐藏地图（避免无意义的平移与瓦片请求）；恢复后由 openMapPage 补渲染
+  if (mapPageInited && isMapPageEnabled()) renderLiveWarning(payload, true);
+}
+
+function getAlertOriginMs(payload) {
+  if (Number.isFinite(payload.originMsLocal)) return payload.originMsLocal;
+  return window.SeismicMap.getEventOriginMs(payload.eew);
+}
+
+// 实时波形阶段：发震后 300 秒内展示 P/S 波扩散，超时销毁
+var LIVE_WAVE_WINDOW_MS = 300 * 1000;
+
+function isLiveAlertRecent(payload) {
+  if (!payload) return false;
+  const originMs = getAlertOriginMs(payload);
+  if (!Number.isFinite(originMs)) return false;
+  return Date.now() - originMs < LIVE_WAVE_WINDOW_MS;
+}
+
+// 波形超过 300 秒自动结束：回到静态预警标记并隐藏状态卡
+function handleLiveWavesExpired() {
+  liveAlertPayload = null;
+  const panel = document.getElementById('mapWaveStatus');
+  if (panel) panel.classList.remove('active');
+  if (mainMapCtrl) syncLatestEewMarker();
+}
+
+// 手动关闭右上角预警信息卡：销毁波形、隐藏卡片、回到静态标记
+function dismissLiveWarning() {
+  handleLiveWavesExpired();
+}
+
+function renderLiveWarning(payload, panToEvent) {
+  if (!mainMapCtrl) return;
+  const eew = payload.eew || {};
+  const coord = getEventCoord(eew);
+  if (isNaN(coord.lat) || isNaN(coord.lon)) return;
+  const s = getMapSettings();
+  const hypocenter = eew.HypoCenter || eew.Hypocenter || eew.hypocenter || t('detail.unknownEpicenter');
+  const magnitude = eew.Magnitude || eew.magnitude || eew.Magunitude || '0';
+  const reportNum = eew.ReportNum || eew.Serial || 0;
+  const originMs = getAlertOriginMs(payload);
+  const depth = Number(eew.Depth !== undefined ? eew.Depth : eew.depth);
+
+  // 仅在发震后 300 秒窗口内渲染 P/S 波扩散，超时只保留静态圆圈标记
+  const inWaveWindow = Number.isFinite(originMs) &&
+    Date.now() - originMs >= 0 && Date.now() - originMs <= LIVE_WAVE_WINDOW_MS;
+
+  mainMapCtrl.showWarning({
+    lat: coord.lat,
+    lng: coord.lon,
+    title: `${hypocenter} · M${magnitude}${reportNum ? ' · ' + t('eew.report', reportNum) : ''}`,
+    originMs: Number.isFinite(originMs) ? originMs : Date.now(),
+    depth: isNaN(depth) ? 10 : depth,
+    pSpeed: Number(s.pWaveSpeed) || 7,
+    sSpeed: Number(s.sWaveSpeed) || 4,
+    earthRadius: Number(s.earthRadius) || 6371,
+    color: payload.isCritical ? '#ef4444' : '#f59e0b',
+    waves: inWaveWindow,
+    onWavesEnded: handleLiveWavesExpired
+  });
+
+  if (panToEvent) mainMapCtrl.panTo(coord.lat, coord.lon, Math.max(mainMapCtrl.map ? mainMapCtrl.map.getZoom() : 5, 7));
+  updateWaveStatus();
+}
+
+function updateWaveStatus() {
+  const panel = document.getElementById('mapWaveStatus');
+  if (!panel) return;
+  // 地图页被关闭时，预警状态卡不得浮在“功能已关闭”占位层之上
+  if (!isMapPageEnabled()) {
+    panel.classList.remove('active');
+    return;
+  }
+  if (!isLiveAlertRecent(liveAlertPayload)) {
+    panel.classList.remove('active');
+    return;
+  }
+  const payload = liveAlertPayload;
+  const eew = payload.eew || {};
+  const s = settings || {};
+  const originMs = getAlertOriginMs(payload);
+  const elapsed = (Date.now() - originMs) / 1000;
+  const depth = Number(eew.Depth !== undefined ? eew.Depth : eew.depth);
+  const R = Number(s.earthRadius) || 6371;
+  const pKm = window.SeismicMap.waveSurfaceRadiusKm(elapsed, Number(s.pWaveSpeed) || 7, isNaN(depth) ? 10 : depth, R);
+  const sKm = window.SeismicMap.waveSurfaceRadiusKm(elapsed, Number(s.sWaveSpeed) || 4, isNaN(depth) ? 10 : depth, R);
+
+  const hypocenter = eew.HypoCenter || eew.Hypocenter || eew.hypocenter || t('detail.unknownEpicenter');
+  const magnitude = eew.Magnitude || eew.magnitude || eew.Magunitude || '0';
+  document.getElementById('wsTitle').textContent =
+    (payload.isCritical ? t('map.status.critical') : t('map.status.title')) + ' · ' + hypocenter;
+  document.getElementById('wsMeta').textContent =
+    `${t('label.magnitude')} M${magnitude} · ${t('label.depth')} ${isNaN(depth) ? '--' : depth}km · ${t('map.status.countdown')} ${waveCountdownText(payload)}`;
+  document.getElementById('wsP').textContent =
+    t('map.status.pRadius') + ' ' + (pKm === Infinity ? '∞' : pKm.toFixed(0)) + ' km';
+  document.getElementById('wsS').textContent =
+    t('map.status.sRadius') + ' ' + (sKm === Infinity ? '∞' : sKm.toFixed(0)) + ' km';
+  panel.classList.add('active');
+}
+
+function waveCountdownText(payload) {
+  if (Number.isFinite(payload.arrivalTimestamp)) {
+    const remain = Math.max(0, Math.ceil((payload.arrivalTimestamp - Date.now()) / 1000));
+    return remain > 0 ? remain + t('label.second') : t('map.status.arrived');
+  }
+  const sec = Number(payload.sWaveSeconds);
+  return Number.isFinite(sec) && sec > 0 ? sec + t('label.second') : t('map.status.arrived');
+}
+
+function initDetailMapOnce() {
+  if (detailMapCtrl || !window.SeismicMap) return;
+  detailMapCtrl = window.SeismicMap.create(
+    document.getElementById('detailSeismicMap'),
+    getMapSettings()
+  );
+}
+
+function showDetailMapPlaceholder(show) {
+  const card = document.getElementById('detailMapCard');
+  const ph = document.getElementById('detailMapPlaceholder');
+  const mapEl = document.getElementById('detailSeismicMap');
+  const label = document.getElementById('detailMapLabel');
+  if (card) card.classList.toggle('map-disabled', show);
+  if (ph) ph.style.display = show ? 'flex' : 'none';
+  if (mapEl) mapEl.style.visibility = show ? 'hidden' : '';
+  if (label) label.style.display = show ? 'none' : '';
+}
+
+function updateDetailMap(item) {
+  // 详情页地图被关闭：卡片显示占位提示
+  if (!isMapDetailEnabled() || !window.SeismicMap) {
+    showDetailMapPlaceholder(true);
+    return;
+  }
+  showDetailMapPlaceholder(false);
+  const coord = getEventCoord(item);
+  const labelEl = document.getElementById('detailMapLabel');
+  if (labelEl) labelEl.textContent = t('detail.mapLabel');
+  if (isNaN(coord.lat) || isNaN(coord.lon)) return;
+  const s = getMapSettings();
+  initDetailMapOnce();
+  if (!detailMapCtrl) return;
+  const title = item.HypoCenter || item.Hypocenter || item.hypocenter ||
+    item.location || item.placeName || item.place_name || item.Location || t('detail.unknown');
+  detailMapCtrl.showEpicenter({ lat: coord.lat, lng: coord.lon, title, color: '#ef4444' });
+  detailMapCtrl.showUser(Number(s.userLatitude), Number(s.userLongitude));
+  setTimeout(() => {
+    detailMapCtrl.invalidate();
+    detailMapCtrl.fitMarkers({ maxZoom: 9 });
+  }, 60);
+}
+
+function applySettingsToMaps() {
+  if (mainMapCtrl) {
+    mainMapCtrl.applySettings(settings);
+    mainMapCtrl.showUser(Number(settings.userLatitude), Number(settings.userLongitude));
+    setTimeout(() => mainMapCtrl.invalidate(), 50);
+  }
+  if (detailMapCtrl) {
+    detailMapCtrl.applySettings(settings);
+    setTimeout(() => detailMapCtrl.invalidate(), 50);
+  }
+}
+
+// 已导入的多报时序模拟配置；非 null 时“发送”按 forms 时序推送多报
 let importedSimConfig = null;
 
 function toDatetimeLocalValue(date) {
@@ -911,8 +1386,8 @@ function isAutoMaxIntensity(value) {
   return text === '自动' || /^auto$/i.test(text);
 }
 
-// 用要石 forms 首报预填表单（仅用于预览；真正推送以完整配置时序为准）
-function fillTestFormFromKanameishi(form) {
+// 用模拟配置 forms 首报预填表单（仅用于预览；真正推送以完整配置时序为准）
+function fillTestFormFromSimConfig(form) {
   const base = Date.now();
   const origin = new Date(base + (Number(form.originDelay) || 0) * 1000);
   const report = new Date(base + (Number(form.reportDelay) || 0) * 1000);
@@ -978,7 +1453,7 @@ async function importTestEEWJson() {
 
     if (obj && typeof obj === 'object' && Array.isArray(obj.forms) && obj.forms.length > 0) {
       importedSimConfig = obj;
-      fillTestFormFromKanameishi(obj.forms[0]);
+      fillTestFormFromSimConfig(obj.forms[0]);
       let message = t('test.import.loaded').replace('{n}', obj.forms.length);
       if (obj.id) message += ` ID: ${obj.id}`;
       if (obj.useShindo === true) message += `（${t('test.import.shindo')}）`;
@@ -1003,7 +1478,7 @@ async function importTestEEWJson() {
   }
 }
 
-// 按要石标准导出当前表单（单报，原点为发震时刻，报告延迟=报告时间-发震时间）
+// 按多报时序格式导出当前表单（单报，原点为发震时刻，报告延迟=报告时间-发震时间）
 async function exportTestEEWJson() {
   const hypoCenter = document.getElementById('testHypoCenter').value.trim();
   const latitude = parseFloat(document.getElementById('testLatitude').value);
@@ -1093,8 +1568,8 @@ async function exportTestEEWJson() {
 function showEEWTestModal() {
   const modal = document.getElementById('eewTestModal');
   if (importedSimConfig && Array.isArray(importedSimConfig.forms) && importedSimConfig.forms.length > 0) {
-    // 已加载要石配置：预览首报的相对时刻（基准=此刻）
-    fillTestFormFromKanameishi(importedSimConfig.forms[0]);
+    // 已加载模拟配置：预览首报的相对时刻（基准=此刻）
+    fillTestFormFromSimConfig(importedSimConfig.forms[0]);
   } else {
     const now = new Date();
     const nowStr = toDatetimeLocalValue(now);
@@ -1110,7 +1585,7 @@ function closeEEWTestModal() {
 }
 
 async function sendEEWTest() {
-  // 已导入要石配置：按 forms 中各报的 reportDelay 时序自动推送，不走单报校验
+  // 已导入多报时序配置：按 forms 中各报的 reportDelay 自动推送，不走单报校验
   if (importedSimConfig) {
     try {
       const res = await window.electronAPI.sendTestEEWSequence(importedSimConfig);
@@ -1253,6 +1728,18 @@ function saveSettings() {
     minimizeToTray: document.getElementById('minimizeToTray').classList.contains('active'),
     titleBarStyle: (document.querySelector('input[name="titleBarStyle"]:checked') || {}).value || 'windows',
     floatingNav: document.getElementById('floatingNav').classList.contains('active'),
+    mapProvider: document.getElementById('mapProvider').value || 'osm',
+    mapApiKeys: {
+      baidu: document.getElementById('mapKeyBaidu').value.trim(),
+      amap: document.getElementById('mapKeyAmap').value.trim(),
+      mapbox: document.getElementById('mapKeyMapbox').value.trim(),
+      google: document.getElementById('mapKeyGoogle').value.trim()
+    },
+    mapPageNotice: document.getElementById('mapPageNotice').classList.contains('active'),
+    mapEnabled: document.getElementById('mapEnabled').classList.contains('active'),
+    mapPageEnabled: document.getElementById('mapPageEnabled').classList.contains('active'),
+    mapDetailEnabled: document.getElementById('mapDetailEnabled').classList.contains('active'),
+    mapAlertEnabled: document.getElementById('mapAlertEnabled').classList.contains('active'),
     aiDomain: document.getElementById('aiDomain').value,
     aiFullUrl: document.getElementById('aiFullUrl').classList.contains('active'),
     aiApiKey: document.getElementById('aiApiKey').value,
@@ -1262,6 +1749,8 @@ function saveSettings() {
   try {
     window.electronAPI.saveSettings(newSettings);
     settings = newSettings;
+    applySettingsToMaps();
+    updateMapSovereigntyNotice();
     showToast(t('alert.save.success'), 'success');
   } catch (error) {
     console.error('Failed to save settings:', error);

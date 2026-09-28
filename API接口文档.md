@@ -440,7 +440,7 @@ S波传播时间 = 距离 / S波速度（默认4km/s）
 
 ### 烈度计算公式
 
-烈度计算方法参考 kanameishi 项目（见 `src/intensity.js`），按数据源所属烈度体系分别计算。
+烈度计算方法见 `src/intensity.js`，按数据源所属烈度体系分别计算。
 
 #### 中国大陆地震烈度（CSIS，适用于 CENC/SC/FJ/CQ）
 

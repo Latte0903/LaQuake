@@ -266,6 +266,16 @@
     }
     .agree-box h3 { color: #60a5fa; font-size: 14px; margin: 14px 0 6px; }
     .agree-box h3:first-child { margin-top: 0; }
+    .agree-box .map-disclaimer {
+      margin-top: 14px;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: #fcd34d;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
 
     .check-line {
       display: flex;
@@ -502,6 +512,7 @@
             <p data-i18n="activation.agreement.item6">2. 地震预警信息可能存在延迟或误差，用户不应完全依赖。</p>
             <p data-i18n="activation.agreement.item7">3. 开发者不对因使用本软件而导致的任何损失承担责任。</p>
             <p data-i18n="activation.agreement.item8">4. 本软件不保证预警信息的准确性、完整性和及时性。</p>
+            <p class="map-disclaimer" id="agreementMapDisclaimer" style="display:none;" data-i18n="activation.agreement.mapItem">地图数据源来自各服务提供商，部分海外地图可能对中国主权领土存在错误标注，相关内容不代表开发者立场。</p>
           </div>
           <label class="check-line">
             <input type="checkbox" id="agreeCheck" onchange="model.agreed = this.checked; updateFooter();">

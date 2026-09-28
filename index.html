@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="app.title">LaQuake - 地震预警</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <style>
     @font-face {
       font-family: 'OPPO Sans';
@@ -1128,6 +1129,249 @@
       border-color: #dc2626;
       color: #fecaca;
     }
+
+    /* ========== 地图页 ========== */
+    .map-page {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+      position: relative;
+    }
+    .map-main {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+      /* 隔离 Leaflet 内部 pane 的高 z-index，避免地图瓦片盖住悬浮底栏 */
+      isolation: isolate;
+      z-index: 0;
+    }
+    #mainSeismicMap {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #0b1220;
+    }
+    .map-legend {
+      position: absolute;
+      left: 12px;
+      bottom: 18px;
+      z-index: 600;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 14px;
+      padding: 10px 12px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      font-size: 12px;
+      color: #e2e8f0;
+      pointer-events: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    .map-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .map-legend-item svg { flex-shrink: 0; }
+    .map-wave-status {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      z-index: 600;
+      max-width: 46%;
+      background: rgba(127, 29, 29, 0.82);
+      border: 1px solid rgba(248, 113, 113, 0.5);
+      border-radius: 14px;
+      padding: 10px 14px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: #fee2e2;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      display: none;
+    }
+    .map-wave-status.active { display: block; }
+    .map-wave-status .ws-title { font-size: 14px; font-weight: 700; margin-bottom: 3px; color: #fff; padding-right: 26px; }
+    .map-wave-status .ws-row { display: flex; gap: 12px; }
+    .map-wave-status .ws-p { color: #a5f3fc; }
+    .map-wave-status .ws-s { color: #fdba74; }
+    .ws-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.28);
+      color: #fecaca;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+    }
+    .map-wave-status:hover .ws-close { opacity: 1; }
+    .ws-close:hover { background: rgba(239, 68, 68, 0.75); color: #fff; }
+
+    .map-sidebar {
+      width: 290px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-left: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .map-sidebar-title {
+      padding: 14px 16px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+    .map-sidebar-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .map-sidebar-item {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-left-width: 3px;
+      border-radius: 12px;
+      padding: 9px 11px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+    .map-sidebar-item:hover { background: rgba(59, 130, 246, 0.18); transform: translateX(-3px); }
+    .map-sidebar-item .msi-title { font-size: 13px; font-weight: 600; color: #f1f5f9; margin-bottom: 3px; }
+    .map-sidebar-item .msi-meta { font-size: 11.5px; color: #94a3b8; display: flex; gap: 8px; flex-wrap: wrap; }
+    body.floating-nav .map-page { padding-bottom: 86px; }
+
+    /* ========== 详情页地图 ========== */
+    .detail-map-card {
+      position: relative;
+      height: 200px;
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      margin-bottom: 20px;
+      background: #0b1220;
+      flex-shrink: 0;
+      isolation: isolate;
+      z-index: 0;
+    }
+    #detailSeismicMap {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .detail-map-label {
+      position: absolute;
+      right: 12px;
+      top: 10px;
+      z-index: 600;
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #e2e8f0;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      pointer-events: none;
+    }
+    #page-detail { overflow: hidden; }
+    #page-detail .detail-container {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* ========== 地图主权标注免责声明（仅大陆坐标展示） ========== */
+    .map-sovereignty-notice {
+      margin-top: 4px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 12px;
+      padding: 9px 12px;
+      font-size: 12px;
+      line-height: 1.65;
+      color: #fcd34d;
+    }
+    .map-page-notice {
+      position: absolute;
+      right: 12px;
+      bottom: 14px;
+      z-index: 600;
+      max-width: 46%;
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      border-radius: 12px;
+      padding: 7px 11px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #fde68a;
+      pointer-events: none;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    }
+    .disclaimer-map-item {
+      color: #fcd34d !important;
+    }
+
+    /* 地图功能关闭时的占位提示 */
+    .map-disabled-placeholder {
+      position: absolute;
+      inset: 0;
+      z-index: 400;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #0b1220;
+      color: #94a3b8;
+      font-size: 13px;
+      text-align: center;
+      padding: 0 20px;
+    }
+    .detail-map-card.map-disabled { height: 96px; }
+    .detail-map-card.map-disabled .map-disabled-placeholder { flex-direction: row; gap: 10px; font-size: 12.5px; }
+
+    /* ========== 地图设置 ========== */
+    .map-key-row { display: none; }
+    .map-key-row.visible { display: flex; }
+    .map-key-row .settings-input { width: 260px; }
+    .settings-row.map-sub-toggle > .settings-label { padding-left: 18px; font-weight: 400; color: #cbd5e1; }
+    .settings-row.map-sub-toggle.disabled-row { opacity: 0.4; pointer-events: none; }
+    .map-hint-text {
+      flex: 1;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #94a3b8;
+    }
+    .settings-menu-card .menu-card-icon.map-icon-svg {
+      display: inline-flex;
+      width: 24px;
+      height: 24px;
+    }
   </style>
 </head>
 <body>
@@ -1190,13 +1434,78 @@
       </div>
     </div>
 
+    <div class="page" id="page-map">
+      <div class="map-page">
+        <div class="map-main">
+          <div id="mainSeismicMap"></div>
+          <div class="map-disabled-placeholder" id="mapPagePlaceholder" style="display:none;">
+            <svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="#64748b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/>
+              <path d="M9 4v14"/><path d="M15 6v14"/>
+            </svg>
+            <p data-i18n="map.disabled.page">地图页已在“设置 - 地图设置”中关闭</p>
+          </div>
+          <div class="map-wave-status" id="mapWaveStatus">
+            <button type="button" class="ws-close" id="wsClose" title="关闭预警信息">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+            <div class="ws-title" id="wsTitle"></div>
+            <div id="wsMeta"></div>
+            <div class="ws-row">
+              <span class="ws-p" id="wsP"></span>
+              <span class="ws-s" id="wsS"></span>
+            </div>
+          </div>
+          <div class="map-legend">
+            <div class="map-legend-item">
+              <svg width="18" height="18" viewBox="0 0 28 28"><circle cx="14" cy="14" r="10.5" fill="#3b82f6" stroke="#fff" stroke-width="2"/><path d="M10.2 10.2 L17.8 17.8 M17.8 10.2 L10.2 17.8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
+              <span data-i18n="map.legend.report">速报震中（X）</span>
+            </div>
+            <div class="map-legend-item">
+              <svg width="18" height="18" viewBox="0 0 30 30"><circle cx="15" cy="15" r="9" fill="rgba(245,158,11,.25)" stroke="#f59e0b" stroke-width="2.4"/><circle cx="15" cy="15" r="2.8" fill="#f59e0b"/></svg>
+              <span data-i18n="map.legend.warning">预警震中（圆圈）</span>
+            </div>
+            <div class="map-legend-item">
+              <svg width="16" height="18" viewBox="0 0 24 24"><path d="M12 22s7-6.1 7-12a7 7 0 1 0-14 0c0 5.9 7 12 7 12z" fill="#3b82f6" stroke="#fff" stroke-width="1.8"/><circle cx="12" cy="10" r="2.4" fill="#fff"/></svg>
+              <span data-i18n="map.legend.user">当前所在地</span>
+            </div>
+            <div class="map-legend-item">
+              <svg width="20" height="8" viewBox="0 0 24 8"><line x1="2" y1="4" x2="22" y2="4" stroke="#67e8f9" stroke-width="2.4" stroke-linecap="round"/></svg>
+              <span data-i18n="map.legend.pwave">纵波（P波）</span>
+            </div>
+            <div class="map-legend-item">
+              <svg width="20" height="8" viewBox="0 0 24 8"><line x1="2" y1="4" x2="22" y2="4" stroke="#f97316" stroke-width="3" stroke-linecap="round"/></svg>
+              <span data-i18n="map.legend.swave">横波（S波）</span>
+            </div>
+          </div>
+          <div class="map-page-notice" id="mapPageNoticeBar" style="display:none;" data-i18n="map.disclaimer.text">地图数据源来自各服务提供商，部分海外地图可能对中国主权领土存在错误标注，相关内容不代表开发者立场。</div>
+        </div>
+        <div class="map-sidebar">
+          <div class="map-sidebar-title" data-i18n="map.sidebar.title">历史地震速报</div>
+          <div class="map-sidebar-list" id="mapSidebarList"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="page-detail">
       <div class="detail-container">
         <div class="detail-header">
           <button class="detail-back-button" onclick="goBack()" data-i18n="detail.back">← 返回</button>
           <h2 id="detail-title" data-i18n="detail.title">地震详情</h2>
         </div>
-        
+
+        <div class="detail-map-card" id="detailMapCard">
+          <div id="detailSeismicMap"></div>
+          <div class="detail-map-label" id="detailMapLabel"></div>
+          <div class="map-disabled-placeholder" id="detailMapPlaceholder" style="display:none;">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#64748b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/>
+              <path d="M9 4v14"/><path d="M15 6v14"/>
+            </svg>
+            <p data-i18n="map.disabled.detail">事件地图已在“设置 - 地图设置”中关闭</p>
+          </div>
+        </div>
+
         <div class="detail-overview">
           <div class="overview-location" id="overview-location" data-i18n="detail.unknown">未知地点</div>
           <div class="overview-stats">
@@ -1261,6 +1570,15 @@
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('geo')">
               <span class="menu-card-icon">📍</span>
               <span class="menu-card-name" data-i18n="settings.geo">地理位置与计算参数</span>
+            </button>
+            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('map')">
+              <span class="menu-card-icon map-icon-svg">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/>
+                  <path d="M9 4v14"/><path d="M15 6v14"/>
+                </svg>
+              </span>
+              <span class="menu-card-name" data-i18n="settings.map">地图设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('appearance')">
               <span class="menu-card-icon">🎨</span>
@@ -1388,6 +1706,64 @@
           <div class="settings-row">
             <span class="settings-label" data-i18n="settings.earthRadius">地球平均半径(km)</span>
             <input type="number" class="settings-input" id="earthRadius" value="6371" min="6000" max="7000">
+          </div>
+        </div>
+
+        <div class="settings-section" data-settings-group="map">
+          <div class="settings-section-title" data-i18n="settings.map">地图设置</div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.mapEnabled">启用地图功能</span>
+            <div class="settings-switch" id="mapEnabled" onclick="toggleSwitch('mapEnabled')"></div>
+          </div>
+          <div class="settings-row map-sub-toggle" id="mapTogglePageRow">
+            <span class="settings-label" data-i18n="settings.mapPageEnabled">地图页</span>
+            <div class="settings-switch" id="mapPageEnabled" onclick="toggleSwitch('mapPageEnabled')"></div>
+          </div>
+          <div class="settings-row map-sub-toggle" id="mapToggleDetailRow">
+            <span class="settings-label" data-i18n="settings.mapDetailEnabled">地震事件二级页面地图</span>
+            <div class="settings-switch" id="mapDetailEnabled" onclick="toggleSwitch('mapDetailEnabled')"></div>
+          </div>
+          <div class="settings-row map-sub-toggle" id="mapToggleAlertRow">
+            <span class="settings-label" data-i18n="settings.mapAlertEnabled">地震预警弹窗地图</span>
+            <div class="settings-switch" id="mapAlertEnabled" onclick="toggleSwitch('mapAlertEnabled')"></div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.mapProvider">地图图源</span>
+            <select class="settings-select" id="mapProvider" onchange="onMapProviderChange()">
+              <option value="osm" data-i18n="settings.mapProvider.osm">OpenStreetMap（默认，无需密钥）</option>
+              <option value="baidu" data-i18n="settings.mapProvider.baidu">百度地图</option>
+              <option value="amap" data-i18n="settings.mapProvider.amap">高德地图</option>
+              <option value="mapbox" data-i18n="settings.mapProvider.mapbox">Mapbox</option>
+              <option value="google" data-i18n="settings.mapProvider.google">Google 地图</option>
+            </select>
+          </div>
+          <div class="settings-row map-key-row" id="mapKeyRow-baidu">
+            <span class="settings-label" data-i18n="settings.mapKey.baidu">百度地图 浏览器端 AK</span>
+            <input type="password" class="settings-input" id="mapKeyBaidu" placeholder="" autocomplete="off">
+          </div>
+          <div class="settings-row map-key-row" id="mapKeyRow-amap">
+            <span class="settings-label" data-i18n="settings.mapKey.amap">高德地图 Web端 Key</span>
+            <input type="password" class="settings-input" id="mapKeyAmap" placeholder="" autocomplete="off">
+          </div>
+          <div class="settings-row map-key-row" id="mapKeyRow-mapbox">
+            <span class="settings-label" data-i18n="settings.mapKey.mapbox">Mapbox Access Token</span>
+            <input type="password" class="settings-input" id="mapKeyMapbox" placeholder="" autocomplete="off">
+          </div>
+          <div class="settings-row map-key-row" id="mapKeyRow-google">
+            <span class="settings-label" data-i18n="settings.mapKey.google">Google Maps API Key</span>
+            <input type="password" class="settings-input" id="mapKeyGoogle" placeholder="" autocomplete="off">
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.mapKey.hint">密钥说明</span>
+            <div class="map-hint-text" data-i18n="settings.mapKey.hint.text">OpenStreetMap 为默认图源，无需密钥；切换到百度、高德、Mapbox、Google 前，请先到对应服务商官网申请并填入你自己的 Key/Token（地图加载时会按图源规则使用），密钥仅保存在本机设置文件中。国内图源已自动进行坐标纠偏。</div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label" data-i18n="settings.mapPageNotice">地图页显示主权标注声明</span>
+            <div class="settings-switch" id="mapPageNotice" onclick="toggleSwitch('mapPageNotice')"></div>
+          </div>
+          <div class="settings-row" id="mapDisclaimerRow" style="display:none;">
+            <span></span>
+            <div class="map-sovereignty-notice map-hint-text" data-i18n="settings.map.disclaimer">地图数据源来自各服务提供商，部分海外地图可能对中国主权领土存在错误标注，相关内容不代表开发者立场。</div>
           </div>
         </div>
 
@@ -1696,6 +2072,9 @@
         <h4 data-i18n="disclaimer.item16" style="color: #fff; margin-top: 16px;">法律管辖：</h4>
         <p data-i18n="disclaimer.item17">因使用本软件与源代码产生的任何法律争议，必须在开发者所在的中华人民共和国大陆地区法院进行解决。</p>
 
+        <h4 id="disclaimerMapTitle" style="display:none; color: #fcd34d; margin-top: 16px;" data-i18n="disclaimer.mapTitle">地图数据与主权标注声明：</h4>
+        <p class="disclaimer-map-item" id="disclaimerMapItem" style="display:none;" data-i18n="disclaimer.mapItem">地图数据源来自各服务提供商，部分海外地图可能对中国主权领土存在错误标注，相关内容不代表开发者立场。</p>
+
         <p data-i18n="disclaimer.eewcn" style="margin-top: 16px; color: #9ca3af;">特别说明：本软件部分设计思路与设置项参考了EEWCN，感谢，作者主页：<span class="about-link" onclick="window.electronAPI.openExternal('https://github.com/lxfly2000')">lxfly2000</span></p>
       </div>
     </div>
@@ -1727,6 +2106,13 @@
         <path d="M18 20V10M8 20V4M3 20h18M3 4h18"/>
       </svg>
       <span data-i18n="nav.eq">地震速报</span>
+    </div>
+    <div class="nav-item" onclick="switchPage('map')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/>
+        <path d="M9 4v14"/><path d="M15 6v14"/>
+      </svg>
+      <span data-i18n="nav.map">地图</span>
     </div>
     <div class="nav-item" onclick="switchPage('push')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1797,6 +2183,8 @@
     </div>
   </div>
 
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="src/map.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
