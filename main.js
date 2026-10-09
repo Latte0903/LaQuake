@@ -110,6 +110,8 @@ let currentEEW = null;
 let sWaveTimer = null;
 let sWaveArrived = false;
 let isFirstLoad = true;
+// 速报首屏标志：久未打开后首次拉取会有积压记录，首轮只通知最新一条
+let isEQFirstLoad = true;
 let processedEEW = {};
 let alertExpireTime = 7200000;
 
@@ -372,7 +374,19 @@ function cleanup() {
   store.close();
 }
 
-async function startPolling() {
+function clearPollingTimers() {
+  if (eewPollingTimer) {
+    clearInterval(eewPollingTimer);
+    eewPollingTimer = null;
+  }
+  if (eqPollingTimer) {
+    clearInterval(eqPollingTimer);
+    eqPollingTimer = null;
+  }
+}
+
+// 仅按当前设置重建轮询定时器（不立即拉取），供设置实时保存后热更新间隔
+function setupPollingTimers() {
   const eewInterval = settings.get('eewPollInterval', 1000);
   const eqInterval = settings.get('eqPollInterval', 5000);
 
@@ -391,6 +405,11 @@ async function startPolling() {
       console.error('EQ polling error:', error);
     }
   }, eqInterval);
+}
+
+async function startPolling() {
+  clearPollingTimers();
+  setupPollingTimers();
 
   await fetchEEWData();
   await fetchEQData();
@@ -450,17 +469,37 @@ async function fetchEEWData() {
     sources.push('cwa');
   }
   
+  // 首轮积压场景下各源达阈值的候选，整轮结束后仅补发最新一条
+  const firstLoadCandidates = [];
   for (const src of sources) {
-    await fetchEEWFromSource(src, count);
+    const candidate = await fetchEEWFromSource(src, count);
+    if (candidate) firstLoadCandidates.push(candidate);
   }
-  
+
   const history = await store.getEEWHistory(count);
   if (mainWindow) {
     mainWindow.webContents.send('eewHistory', history);
   }
-  
+
   if (isFirstLoad) {
-    console.log('EEW: First load complete');
+    if (firstLoadCandidates.length > 0) {
+      // 跨源按发震时刻取最新；同一时刻多报时取报告号更大者
+      firstLoadCandidates.sort((a, b) => {
+        if (b.originMs !== a.originMs) return b.originMs - a.originMs;
+        return (b.eew.ReportNum || b.eew.Serial || 0) - (a.eew.ReportNum || a.eew.Serial || 0);
+      });
+      const latest = firstLoadCandidates[0];
+      const ageMs = Date.now() - latest.originMs;
+      // 过期预警（默认超过 2 小时）首轮不弹窗、不推送，避免久未打开后被旧警报惊吓
+      if (Number.isFinite(ageMs) && ageMs <= alertExpireTime) {
+        console.log(`EEW: First load — ${firstLoadCandidates.length} candidate(s), pushing only the latest (age ${Math.round(ageMs / 1000)}s)`);
+        handleEEWAlert(latest.eew, latest.localIntensity, latest.source);
+      } else {
+        console.log(`EEW: First load complete — latest report too old (${Math.round(ageMs / 1000)}s), no alert`);
+      }
+    } else {
+      console.log('EEW: First load complete (no report above threshold)');
+    }
     isFirstLoad = false;
   }
 }
@@ -508,17 +547,21 @@ async function fetchEEWFromSource(source, count) {
     if (serial > processedEEW[eventId].maxSerial) {
       console.log(`EEW [${source}]: New report detected, serial:`, serial, 'prev max:', processedEEW[eventId].maxSerial);
       processedEEW[eventId].maxSerial = serial;
-      
+
+      const meetsThreshold = localIntensity >= settings.get('minLocalIntensity', 0);
       if (!isFirstLoad) {
-        if (localIntensity >= settings.get('minLocalIntensity', 0)) {
+        if (meetsThreshold) {
           const nowTime = Date.now();
           const alertCooldown = 10000;
-          
+
           if (nowTime - processedEEW[eventId].lastAlertTime > alertCooldown) {
             processedEEW[eventId].lastAlertTime = nowTime;
             handleEEWAlert(eew, localIntensity, source);
           }
         }
+      } else if (meetsThreshold) {
+        // 启动首轮（久未打开的积压场景）：先收集候选，整轮结束后仅补发最新且仍在有效期内的一条
+        return { eew, localIntensity, source, originMs: originTime };
       }
     }
   } catch (error) {
@@ -537,6 +580,9 @@ async function fetchEQData() {
     
     if (!data || !data.length) return;
 
+    // 首轮积压场景下达阈值的新速报：全部照常入库，但只通知最新一条
+    const firstLoadPushes = [];
+
     for (const eq of data) {
       const { localIntensity, epicenterIntensity, region, distance } = evaluateEqIntensity(eq, source, userLat, userLon);
       eq._epicenterIntensity = epicenterIntensity;
@@ -548,12 +594,35 @@ async function fetchEQData() {
       if (isNew) {
         const notifyIntensity = Math.max(localIntensity || 0, epicenterIntensity || 0);
         if (notifyIntensity >= settings.get('minEQIntensity', 0)) {
-          playNamedSound('newrecord');
-          await sendEQPost(eq, localIntensity, distance);
+          if (isEQFirstLoad) {
+            firstLoadPushes.push({ eq, localIntensity, distance });
+          } else {
+            playNamedSound('newrecord');
+            await sendEQPost(eq, localIntensity, distance);
+          }
         }
       }
     }
-    
+
+    if (isEQFirstLoad) {
+      if (firstLoadPushes.length > 0) {
+        // 按发震时刻取最新一条（API 通常已倒序，这里再排序兜底）
+        firstLoadPushes.sort((a, b) => {
+          const ta = new Date(a.eq.time || a.eq.Time || 0).getTime();
+          const tb = new Date(b.eq.time || b.eq.Time || 0).getTime();
+          return tb - ta;
+        });
+        const latest = firstLoadPushes[0];
+        console.log(`EQ: First load — ${firstLoadPushes.length} backed-up new report(s), notifying only the latest:`,
+          latest.eq.EventID, latest.eq.time || latest.eq.Time);
+        playNamedSound('newrecord');
+        await sendEQPost(latest.eq, latest.localIntensity, latest.distance);
+      } else {
+        console.log('EQ: First load complete (no new report above threshold)');
+      }
+      isEQFirstLoad = false;
+    }
+
     const history = await store.getEQHistory(count);
     mainWindow?.webContents.send('eqHistory', history);
   } catch (error) {
@@ -563,9 +632,9 @@ async function fetchEQData() {
 
 const PUSH_TITLE = '【LaQuake】';
 const DEFAULT_BARK_ENDPOINT = 'https://api.day.app/push';
-const DEFAULT_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}';
-// 速报专用模板：地震已发生，不含倒计时（{TIME} 无意义），文案明确为"速报"
-const DEFAULT_EQ_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
+const DEFAULT_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "LaQuake",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，震中距您{ZZJ}km。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
+// 速报默认模板（与预警默认一致的精简文案）
+const DEFAULT_EQ_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "LaQuake",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，震中距您{ZZJ}km。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
 const PUSH_VAR_KEYS = ['TITLE', 'BODY', 'FZSK', 'ZZMC', 'ZHENJI', 'LIEDU', 'YGLD', 'ZZJ', 'TIME', 'YHCD', 'BXJY'];
 
 function buildSimpleBarkPayload(vars) {
@@ -650,7 +719,7 @@ async function sendPushNotification(vars, type = 'eew') {
   if (mode === 'pro') {
     url = (settings.get('pushUrl', '') || '').trim().replace(/\/+$/, '');
     if (!url) return;
-    // 预警与速报使用各自的模板：速报绝不能套用预警文案（紧急地震预警 + 倒计时）
+    // 预警与速报使用各自独立的模板键（默认内容一致，用户仍可分别自定义）
     const isEq = type === 'eq';
     const defaultTpl = isEq ? DEFAULT_EQ_PUSH_JSON : DEFAULT_PUSH_JSON;
     const settingKey = isEq ? 'eqPushJsonTemplate' : 'pushJsonTemplate';
@@ -961,13 +1030,31 @@ ipcMain.on('saveSettings', (event, newSettings) => {
   try {
     const oldSettings = settings.getAll();
     settings.save(newSettings);
-    
+    // 设置已改为实时保存，渲染进程可能只传单个字段，备份与音效同步必须使用合并后的完整设置
+    const mergedSettings = settings.getAll();
+
     if (fs.existsSync(laFilePath)) {
-      store.saveToLAFileSync(newSettings);
+      store.saveToLAFileSync(mergedSettings);
     }
-    
-    sound.updateFromSettings(newSettings);
-    
+
+    sound.updateFromSettings(mergedSettings);
+
+    // 查询超时实时生效（SeismicAPI 每次请求时读取 this.timeout）
+    const timeoutMs = Number(mergedSettings.requestTimeout);
+    if (!isNaN(timeoutMs) && timeoutMs > 0) {
+      api.timeout = timeoutMs;
+    }
+
+    // 轮询间隔实时生效：间隔变化时按新间隔重建定时器（不立即额外拉取）
+    const eewIntervalChanged = newSettings.eewPollInterval !== undefined &&
+      Number(newSettings.eewPollInterval) !== Number(oldSettings.eewPollInterval);
+    const eqIntervalChanged = newSettings.eqPollInterval !== undefined &&
+      Number(newSettings.eqPollInterval) !== Number(oldSettings.eqPollInterval);
+    if (eewIntervalChanged || eqIntervalChanged) {
+      clearPollingTimers();
+      setupPollingTimers();
+    }
+
     // Reload language if it changed
     if (newSettings.language && newSettings.language !== oldSettings.language) {
       loadLanguage(newSettings.language);
@@ -1044,15 +1131,8 @@ ipcMain.on('resetSettings', (event) => {
       mainWindow.setTitle(t('app.title'));
     }
     
-    if (eewPollingTimer) {
-      clearInterval(eewPollingTimer);
-      eewPollingTimer = null;
-    }
-    if (eqPollingTimer) {
-      clearInterval(eqPollingTimer);
-      eqPollingTimer = null;
-    }
-    
+    clearPollingTimers();
+
     processedEEW = {};
     
     startPolling();

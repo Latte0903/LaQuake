@@ -19,9 +19,9 @@ class SettingsManager {
       barkUrl: 'https://api.day.app/push',
       barkDeviceKey: '',
       pushUrl: '',
-      pushJsonTemplate: '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}',
-      // 速报推送模板：地震已发生，不含倒计时，文案明确为"速报"而非"预警"
-      eqPushJsonTemplate: '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}',
+      pushJsonTemplate: '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "LaQuake",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，震中距您{ZZJ}km。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}',
+      // 速报推送默认模板（与预警默认一致的精简文案）
+      eqPushJsonTemplate: '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "LaQuake",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，震中距您{ZZJ}km。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}',
       eewPostUrl: '',
       eqPostUrl: '',
       minLocalIntensity: 0,
@@ -97,6 +97,15 @@ class SettingsManager {
         const OLD_DEFAULT_TEMPLATE = '{\n  "title": "{TITLE}",\n  "body": "{BODY}"\n}';
         if (this.settings.pushJsonTemplate === OLD_DEFAULT_TEMPLATE) {
           this.settings.pushJsonTemplate = this.defaultSettings.pushJsonTemplate;
+        }
+        // 旧版出厂默认（长文案预警/速报模板）统一迁移到当前精简默认；用户自定义模板不受影响
+        const LEGACY_DEFAULT_PUSH_TEMPLATE = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}';
+        const LEGACY_DEFAULT_EQ_TEMPLATE = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
+        if (this.settings.pushJsonTemplate === LEGACY_DEFAULT_PUSH_TEMPLATE) {
+          this.settings.pushJsonTemplate = this.defaultSettings.pushJsonTemplate;
+        }
+        if (this.settings.eqPushJsonTemplate === LEGACY_DEFAULT_EQ_TEMPLATE) {
+          this.settings.eqPushJsonTemplate = this.defaultSettings.eqPushJsonTemplate;
         }
       } else {
         this.settings = { ...this.defaultSettings };

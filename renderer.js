@@ -149,6 +149,7 @@ function changeLanguage(lang) {
     console.error('Failed to set language:', error);
   }
   settings.language = lang;
+  persistSetting({ language: lang });
   translatePage();
   if (currentPage === 'eew') {
     loadEEWHistory();
@@ -366,6 +367,9 @@ function setupEventListeners() {
       }
     }
   });
+
+  // 所有设置项改为实时生效（输入防抖落盘，开关/下拉/单选即时落盘）
+  bindLiveSettings();
 }
 
 function switchPage(pageId) {
@@ -842,6 +846,7 @@ function toggleSwitch(id) {
   const el = document.getElementById(id);
   const isActive = el.classList.toggle('active');
 
+  // 开机自启：需同步系统注册表，失败时回滚开关状态
   if (id === 'autoStart') {
     let ok = false;
     try {
@@ -856,7 +861,9 @@ function toggleSwitch(id) {
       settings.autoStart = isActive;
       persistSetting({ autoStart: isActive });
     }
+    return;
   }
+  // 自动定位：开启时立即发起定位（成功后由 locateNow 持久化坐标），关闭时直接持久化
   if (id === 'autoLocate') {
     if (isActive) {
       locateNow(true);
@@ -864,19 +871,185 @@ function toggleSwitch(id) {
       settings.autoLocate = false;
       persistSetting({ autoLocate: false });
     }
+    return;
   }
+
+  // 其余开关一律实时持久化（eewCWA / soundEnabled / enableLogging /
+  // minimizeToTray / floatingNav / aiFullUrl / mapPageNotice / 地图分级开关）
+  settings[id] = isActive;
+  persistSetting({ [id]: isActive });
+
   if (id === 'floatingNav') {
     document.body.classList.toggle('floating-nav', isActive);
-  }
-  if (id === 'mapPageNotice') {
-    settings.mapPageNotice = isActive;
+  } else if (id === 'mapPageNotice') {
     updateMapSovereigntyNotice();
-  }
-  if (['mapEnabled', 'mapPageEnabled', 'mapDetailEnabled', 'mapAlertEnabled'].includes(id)) {
-    settings[id] = isActive;
+  } else if (['mapEnabled', 'mapPageEnabled', 'mapDetailEnabled', 'mapAlertEnabled'].includes(id)) {
     updateMapToggleStates();
     applyMapFeatureToggles();
   }
+}
+
+/* ==================== 所有设置项实时生效（无需保存按钮） ==================== */
+
+// 带取消的防抖：输入停顿后自动落盘，失焦(change)/步进时立即落盘
+function createDebouncedCommit(commit, wait = 450) {
+  let timer = null;
+  const wrapped = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      commit();
+    }, wait);
+  };
+  wrapped.flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    commit();
+  };
+  return wrapped;
+}
+
+// 数值型设置：id 元素ID / key 设置键 / parse 解析器 / scale 界面值→存储值倍数 / after 保存后联动
+const LIVE_NUMBER_FIELDS = [
+  { id: 'eewPollInterval', key: 'eewPollInterval', parse: parseInt, scale: 1000 },
+  { id: 'eewCount', key: 'eewCount', parse: parseInt },
+  { id: 'eqPollInterval', key: 'eqPollInterval', parse: parseInt, scale: 1000 },
+  { id: 'eqCount', key: 'eqCount', parse: parseInt },
+  { id: 'requestTimeout', key: 'requestTimeout', parse: parseInt, scale: 1000 },
+  { id: 'minLocalIntensity', key: 'minLocalIntensity', parse: parseFloat },
+  { id: 'minEpicenterIntensity', key: 'minEpicenterIntensity', parse: parseFloat },
+  { id: 'minEQIntensity', key: 'minEQIntensity', parse: parseFloat },
+  { id: 'strongShakeIntensity', key: 'strongShakeIntensity', parse: parseFloat },
+  { id: 'criticalIntensity', key: 'criticalIntensity', parse: parseFloat },
+  { id: 'userLatitude', key: 'userLatitude', parse: parseFloat, after: onUserGeoFieldChanged },
+  { id: 'userLongitude', key: 'userLongitude', parse: parseFloat, after: onUserGeoFieldChanged },
+  { id: 'pWaveSpeed', key: 'pWaveSpeed', parse: parseFloat },
+  { id: 'sWaveSpeed', key: 'sWaveSpeed', parse: parseFloat },
+  { id: 'earthRadius', key: 'earthRadius', parse: parseInt }
+];
+
+// 文本型设置：trim=false 保留首尾空白（JSON 模板），长文本延长防抖
+const LIVE_TEXT_FIELDS = [
+  { id: 'aiDomain', key: 'aiDomain' },
+  { id: 'aiApiKey', key: 'aiApiKey' },
+  { id: 'aiModel', key: 'aiModel' },
+  { id: 'barkUrl', key: 'barkUrl' },
+  { id: 'barkDeviceKey', key: 'barkDeviceKey' },
+  { id: 'pushUrl', key: 'pushUrl' },
+  { id: 'pushJsonTemplate', key: 'pushJsonTemplate', trim: false, wait: 800 },
+  { id: 'eqPushJsonTemplate', key: 'eqPushJsonTemplate', trim: false, wait: 800 }
+];
+
+// 地图服务商密钥（嵌套对象 mapApiKeys，任一变动都整体提交）
+const MAP_KEY_FIELDS = [
+  { id: 'mapKeyBaidu', provider: 'baidu' },
+  { id: 'mapKeyAmap', provider: 'amap' },
+  { id: 'mapKeyMapbox', provider: 'mapbox' },
+  { id: 'mapKeyGoogle', provider: 'google' }
+];
+
+// 手动修改经纬度后：刷新主权声明可见性，并移动地图上的所在地标记
+function onUserGeoFieldChanged() {
+  updateMapSovereigntyNotice();
+  if (mainMapCtrl && mapPageInited) {
+    mainMapCtrl.showUser(Number(settings.userLatitude), Number(settings.userLongitude));
+  }
+}
+
+function bindSelectLive(id, key, after) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('change', () => {
+    const value = el.value;
+    if (settings[key] === value) return;
+    settings[key] = value;
+    persistSetting({ [key]: value });
+    if (after) after(value);
+  });
+}
+
+function bindRadioLive(name, key, after) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach((radio) => {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      const value = radio.value;
+      if (settings[key] === value) return;
+      settings[key] = value;
+      persistSetting({ [key]: value });
+      if (after) after(value);
+    });
+  });
+}
+
+function bindLiveSettings() {
+  // 数值输入：防抖实时保存；非法/空值在失焦时恢复为已保存值
+  LIVE_NUMBER_FIELDS.forEach((field) => {
+    const el = document.getElementById(field.id);
+    if (!el) return;
+    const restoreUI = () => {
+      const saved = settings[field.key];
+      el.value = field.scale ? Number(saved) / field.scale : saved;
+    };
+    const commit = () => {
+      if (el.value === '' || isNaN(field.parse(el.value))) {
+        restoreUI();
+        return;
+      }
+      const value = field.scale ? field.parse(el.value) * field.scale : field.parse(el.value);
+      if (Number(settings[field.key]) === Number(value)) return;
+      settings[field.key] = value;
+      persistSetting({ [field.key]: value });
+      if (field.after) field.after();
+    };
+    const debounced = createDebouncedCommit(commit);
+    el.addEventListener('input', debounced);
+    el.addEventListener('change', debounced.flush);
+  });
+
+  // 文本输入（AI / Bark / 自定义推送 URL / JSON 模板）
+  LIVE_TEXT_FIELDS.forEach((field) => {
+    const el = document.getElementById(field.id);
+    if (!el) return;
+    const commit = () => {
+      const value = field.trim === false ? el.value : el.value.trim();
+      if (settings[field.key] === value) return;
+      settings[field.key] = value;
+      persistSetting({ [field.key]: value });
+    };
+    const debounced = createDebouncedCommit(commit, field.wait || 500);
+    el.addEventListener('input', debounced);
+    el.addEventListener('change', debounced.flush);
+  });
+
+  // 地图密钥：更新嵌套对象并整体持久化，随后热刷新地图图源
+  MAP_KEY_FIELDS.forEach((field) => {
+    const el = document.getElementById(field.id);
+    if (!el) return;
+    const commit = () => {
+      const value = el.value.trim();
+      const keys = settings.mapApiKeys || {};
+      if ((keys[field.provider] || '') === value) return;
+      settings.mapApiKeys = { ...keys, [field.provider]: value };
+      persistSetting({ mapApiKeys: settings.mapApiKeys });
+      applySettingsToMaps();
+    };
+    const debounced = createDebouncedCommit(commit, 600);
+    el.addEventListener('input', debounced);
+    el.addEventListener('change', debounced.flush);
+  });
+
+  // 下拉选择
+  bindSelectLive('eqSource', 'eqSource');
+  bindSelectLive('mapProvider', 'mapProvider', () => {
+    onMapProviderChange();
+    applySettingsToMaps();
+  });
+
+  // 单选组：预警数据源（后端每次轮询实时读取）、标题栏样式（即时预览+持久化）
+  bindRadioLive('eewSource', 'eewSource');
+  bindRadioLive('titleBarStyle', 'titleBarStyle', () => applyAppearance());
 }
 
 let locating = false;
@@ -1699,65 +1872,6 @@ function clearEEWHistory() {
   });
 }
 
-function saveSettings() {
-  const eewSourceRadio = document.querySelector('input[name="eewSource"]:checked');
-  const newSettings = {
-    language: document.getElementById('languageSelect').value || 'zh-CN',
-    eewSource: eewSourceRadio ? eewSourceRadio.value : 'cenc',
-    eewCWA: document.getElementById('eewCWA').classList.contains('active'),
-    eqSource: document.getElementById('eqSource').value,
-    eewPollInterval: parseInt(document.getElementById('eewPollInterval').value) * 1000,
-    eewCount: parseInt(document.getElementById('eewCount').value),
-    eqPollInterval: parseInt(document.getElementById('eqPollInterval').value) * 1000,
-    eqCount: parseInt(document.getElementById('eqCount').value),
-    requestTimeout: parseInt(document.getElementById('requestTimeout').value) * 1000,
-    minLocalIntensity: parseFloat(document.getElementById('minLocalIntensity').value),
-    minEpicenterIntensity: parseFloat(document.getElementById('minEpicenterIntensity').value),
-    minEQIntensity: parseFloat(document.getElementById('minEQIntensity').value),
-    strongShakeIntensity: parseFloat(document.getElementById('strongShakeIntensity').value),
-    criticalIntensity: parseFloat(document.getElementById('criticalIntensity').value),
-    userLatitude: parseFloat(document.getElementById('userLatitude').value),
-    userLongitude: parseFloat(document.getElementById('userLongitude').value),
-    autoLocate: document.getElementById('autoLocate').classList.contains('active'),
-    pWaveSpeed: parseFloat(document.getElementById('pWaveSpeed').value),
-    sWaveSpeed: parseFloat(document.getElementById('sWaveSpeed').value),
-    earthRadius: parseInt(document.getElementById('earthRadius').value),
-    autoStart: document.getElementById('autoStart').classList.contains('active'),
-    soundEnabled: document.getElementById('soundEnabled').classList.contains('active'),
-    enableLogging: document.getElementById('enableLogging').classList.contains('active'),
-    minimizeToTray: document.getElementById('minimizeToTray').classList.contains('active'),
-    titleBarStyle: (document.querySelector('input[name="titleBarStyle"]:checked') || {}).value || 'windows',
-    floatingNav: document.getElementById('floatingNav').classList.contains('active'),
-    mapProvider: document.getElementById('mapProvider').value || 'osm',
-    mapApiKeys: {
-      baidu: document.getElementById('mapKeyBaidu').value.trim(),
-      amap: document.getElementById('mapKeyAmap').value.trim(),
-      mapbox: document.getElementById('mapKeyMapbox').value.trim(),
-      google: document.getElementById('mapKeyGoogle').value.trim()
-    },
-    mapPageNotice: document.getElementById('mapPageNotice').classList.contains('active'),
-    mapEnabled: document.getElementById('mapEnabled').classList.contains('active'),
-    mapPageEnabled: document.getElementById('mapPageEnabled').classList.contains('active'),
-    mapDetailEnabled: document.getElementById('mapDetailEnabled').classList.contains('active'),
-    mapAlertEnabled: document.getElementById('mapAlertEnabled').classList.contains('active'),
-    aiDomain: document.getElementById('aiDomain').value,
-    aiFullUrl: document.getElementById('aiFullUrl').classList.contains('active'),
-    aiApiKey: document.getElementById('aiApiKey').value,
-    aiModel: document.getElementById('aiModel').value
-  };
-
-  try {
-    window.electronAPI.saveSettings(newSettings);
-    settings = newSettings;
-    applySettingsToMaps();
-    updateMapSovereigntyNotice();
-    showToast(t('alert.save.success'), 'success');
-  } catch (error) {
-    console.error('Failed to save settings:', error);
-    showToast(t('alert.save.fail'), 'error');
-  }
-}
-
 function resetSettings() {
   showConfirmDialog(t('alert.reset.confirm'), (confirmed) => {
     if (!confirmed) return;
@@ -1772,8 +1886,8 @@ function resetSettings() {
   });
 }
 
-const DEFAULT_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "紧急地震预警！{FZSK}{ZZMC}发生{ZHENJI}级地震。预估本地烈度{YGLD}度，横波将于{TIME}秒后到达。预估有{YHCD}，请遵循{BXJY}.来自中国地震预警网。",\n  "level": "critical",\n  "sound": "alarm",\n  "volume": 10\n}';
-const DEFAULT_EQ_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "【LaQuake】",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，预估本地烈度{YGLD}度，震中距{ZZJ}km。预估有{YHCD}，请遵循{BXJY}。来自中国地震预警网。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
+const DEFAULT_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "LaQuake",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，震中距您{ZZJ}km。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
+const DEFAULT_EQ_PUSH_JSON = '{\n  "device_key": "你的Key「可在BarkAPP获取」",\n  "title": "LaQuake",\n  "body": "地震速报：{FZSK}{ZZMC}发生{ZHENJI}级地震，震中距您{ZZJ}km。",\n  "level": "timeSensitive",\n  "sound": "minuet",\n  "volume": 10\n}';
 
 function loadPushSettingsUI() {
   const mode = settings.pushMode || 'simple';
@@ -1806,6 +1920,11 @@ function switchPushMode(mode) {
     simplePanel.style.display = 'block';
     proPanel.style.display = 'none';
   }
+  // 初始化回填 UI 时设置值未变化，不触发落盘；仅用户手动切换时持久化
+  if (settings.pushMode !== mode) {
+    settings.pushMode = mode;
+    persistSetting({ pushMode: mode });
+  }
 }
 
 // 记录最后聚焦的模板编辑框，变量插入按钮据此选择目标
@@ -1818,6 +1937,8 @@ function insertPushVar(token) {
   textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end);
   textarea.focus();
   textarea.selectionStart = textarea.selectionEnd = start + token.length;
+  // 程序化赋值不会触发 input 事件，手动派发以走实时保存
+  textarea.dispatchEvent(new Event('input'));
 }
 
 function collectPushSettings() {
@@ -1831,33 +1952,6 @@ function collectPushSettings() {
     pushJsonTemplate: document.getElementById('pushJsonTemplate').value,
     eqPushJsonTemplate: document.getElementById('eqPushJsonTemplate').value
   };
-}
-
-function savePushSettings() {
-  const updated = collectPushSettings();
-  if (updated.pushMode === 'pro') {
-    for (const id of ['pushJsonTemplate', 'eqPushJsonTemplate']) {
-      try {
-        JSON.parse(updated[id === 'pushJsonTemplate' ? 'pushJsonTemplate' : 'eqPushJsonTemplate']);
-      } catch (error) {
-        showToast(t('push.jsonInvalid'), 'error', 3200);
-        document.getElementById(id).focus();
-        return;
-      }
-    }
-  } else if (!updated.barkDeviceKey) {
-    showToast(t('push.deviceKey.required'), 'error');
-    document.getElementById('barkDeviceKey').focus();
-    return;
-  }
-  try {
-    window.electronAPI.saveSettings(updated);
-    settings = updated;
-    showToast(t('alert.save.success'), 'success');
-  } catch (error) {
-    console.error('Failed to save push settings:', error);
-    showToast(t('alert.save.fail'), 'error');
-  }
 }
 
 async function testPushSettings() {
