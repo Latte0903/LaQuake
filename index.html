@@ -362,8 +362,33 @@
       border-color: rgba(59, 130, 246, 0.6);
       background: rgba(59, 130, 246, 0.14);
     }
-    .menu-card-icon { font-size: 24px; line-height: 1; }
+    .menu-card-icon { font-size: 24px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
     .menu-card-name { font-weight: 600; }
+
+    /* 图标遮罩：以 Media 下的 SVG 作为蒙版，颜色跟随主题 currentColor */
+    .icon-mask {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      background-color: currentColor;
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-position: center;
+      mask-position: center;
+      -webkit-mask-size: contain;
+      mask-size: contain;
+    }
+    .icon-datasource { -webkit-mask-image: url('Media/数据源.svg'); mask-image: url('Media/数据源.svg'); }
+    .icon-query { -webkit-mask-image: url('Media/查询.svg'); mask-image: url('Media/查询.svg'); }
+    .icon-threshold { -webkit-mask-image: url('Media/阈值.svg'); mask-image: url('Media/阈值.svg'); }
+    .icon-geo { -webkit-mask-image: url('Media/定位.svg'); mask-image: url('Media/定位.svg'); }
+    .icon-appearance { -webkit-mask-image: url('Media/外观.svg'); mask-image: url('Media/外观.svg'); }
+    .icon-sound { -webkit-mask-image: url('Media/声音.svg'); mask-image: url('Media/声音.svg'); }
+    .icon-ai { -webkit-mask-image: url('Media/AI.svg'); mask-image: url('Media/AI.svg'); }
+    .icon-system { -webkit-mask-image: url('Media/系统设置.svg'); mask-image: url('Media/系统设置.svg'); }
+    .icon-nav-eew { -webkit-mask-image: url('Media/预警_底栏.svg'); mask-image: url('Media/预警_底栏.svg'); }
+    .icon-nav-eq { -webkit-mask-image: url('Media/速报_底栏.svg'); mask-image: url('Media/速报_底栏.svg'); }
+    .icon-nav-push { -webkit-mask-image: url('Media/推送配置.svg'); mask-image: url('Media/推送配置.svg'); }
     .settings-back-button {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1372,6 +1397,57 @@
       width: 24px;
       height: 24px;
     }
+
+    /* ========== 首次运行交互式引导（聚光灯 + 气泡） ========== */
+    .onboarding-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      pointer-events: none;
+    }
+    .ob-spotlight {
+      position: fixed;
+      border-radius: 14px;
+      border: 2px solid rgba(96, 165, 250, 0.95);
+      box-shadow: 0 0 0 9999px rgba(3, 8, 20, 0.72);
+      pointer-events: none;
+      transition: left 0.18s ease, top 0.18s ease, width 0.18s ease, height 0.18s ease;
+    }
+    .ob-tip {
+      position: fixed;
+      width: 344px;
+      max-width: calc(100vw - 32px);
+      background: rgba(15, 23, 42, 0.98);
+      border: 1px solid rgba(96, 165, 250, 0.5);
+      border-radius: 16px;
+      padding: 16px 18px;
+      color: #e2e8f0;
+      pointer-events: auto;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+      z-index: 501;
+    }
+    .ob-tip.centered {
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .ob-tip-step { font-size: 11px; letter-spacing: 0.5px; color: #60a5fa; margin-bottom: 6px; }
+    .ob-tip-title { font-size: 15px; font-weight: 700; color: #ffffff; margin-bottom: 8px; }
+    .ob-tip-body { font-size: 13px; line-height: 1.7; color: #cbd5e1; white-space: pre-line; }
+    .ob-tip-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+    .ob-btn {
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 7px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .ob-btn:hover { background: rgba(255, 255, 255, 0.16); }
+    .ob-btn.primary { background: rgba(59, 130, 246, 0.92); border-color: rgba(59, 130, 246, 0.92); color: #fff; }
+    .ob-btn.primary:hover { background: #3b82f6; }
   </style>
 </head>
 <body>
@@ -1556,22 +1632,22 @@
           <h2 class="settings-menu-title" data-i18n="settings.menu.title">设置</h2>
           <div class="settings-menu-grid">
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('dataSource')">
-              <span class="menu-card-icon">🌐</span>
+              <span class="menu-card-icon icon-mask icon-datasource"></span>
               <span class="menu-card-name" data-i18n="settings.dataSource">数据源设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('query')">
-              <span class="menu-card-icon">⏱️</span>
+              <span class="menu-card-icon icon-mask icon-query"></span>
               <span class="menu-card-name" data-i18n="settings.query">查询参数设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('threshold')">
-              <span class="menu-card-icon">🚨</span>
+              <span class="menu-card-icon icon-mask icon-threshold"></span>
               <span class="menu-card-name" data-i18n="settings.threshold">预警阈值设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('geo')">
-              <span class="menu-card-icon">📍</span>
+              <span class="menu-card-icon icon-mask icon-geo"></span>
               <span class="menu-card-name" data-i18n="settings.geo">地理位置与计算参数</span>
             </button>
-            <button type="button" class="settings-menu-card" onclick="openSettingsGroup('map')">
+            <button type="button" class="settings-menu-card" id="settingsMenuMap" onclick="openSettingsGroup('map')">
               <span class="menu-card-icon map-icon-svg">
                 <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/>
@@ -1581,19 +1657,19 @@
               <span class="menu-card-name" data-i18n="settings.map">地图设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('appearance')">
-              <span class="menu-card-icon">🎨</span>
+              <span class="menu-card-icon icon-mask icon-appearance"></span>
               <span class="menu-card-name" data-i18n="settings.appearance">界面外观</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('sound')">
-              <span class="menu-card-icon">🔊</span>
+              <span class="menu-card-icon icon-mask icon-sound"></span>
               <span class="menu-card-name" data-i18n="settings.sound">声音设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('ai')">
-              <span class="menu-card-icon">🤖</span>
+              <span class="menu-card-icon icon-mask icon-ai"></span>
               <span class="menu-card-name" data-i18n="settings.ai">AI设置</span>
             </button>
             <button type="button" class="settings-menu-card" onclick="openSettingsGroup('system')">
-              <span class="menu-card-icon">⚙️</span>
+              <span class="menu-card-icon icon-mask icon-system"></span>
               <span class="menu-card-name" data-i18n="settings.system">系统设置</span>
             </button>
           </div>
@@ -1889,7 +1965,10 @@
           </div>
           <div class="settings-row">
             <span class="settings-label" data-i18n="settings.eewTest">预警测试</span>
-            <button class="settings-button" onclick="showEEWTestModal()" data-i18n="settings.eewTest.btn">测试预警</button>
+            <div style="display: flex; gap: 10px;">
+              <button class="settings-button" onclick="showEEWTestModal()" data-i18n="settings.eewTest.btn">测试预警</button>
+              <button class="settings-button" onclick="runExampleEewSim()" data-i18n="settings.eewTest.sample">再入示例</button>
+            </div>
           </div>
           <div class="settings-row">
             <span class="settings-label" data-i18n="settings.clearEEW">清除预警列表</span>
@@ -2093,33 +2172,26 @@
   </div>
 
   <div class="nav-bar">
-    <div class="nav-item active" onclick="switchPage('eew')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-      </svg>
+    <div class="nav-item active" id="nav-eew" onclick="switchPage('eew')">
+      <span class="icon-mask icon-nav-eew"></span>
       <span data-i18n="nav.eew">地震预警</span>
     </div>
-    <div class="nav-item" onclick="switchPage('eq')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18 20V10M8 20V4M3 20h18M3 4h18"/>
-      </svg>
+    <div class="nav-item" id="nav-eq" onclick="switchPage('eq')">
+      <span class="icon-mask icon-nav-eq"></span>
       <span data-i18n="nav.eq">地震速报</span>
     </div>
-    <div class="nav-item" onclick="switchPage('map')">
+    <div class="nav-item" id="nav-map" onclick="switchPage('map')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/>
         <path d="M9 4v14"/><path d="M15 6v14"/>
       </svg>
       <span data-i18n="nav.map">地图</span>
     </div>
-    <div class="nav-item" onclick="switchPage('push')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-      </svg>
+    <div class="nav-item" id="nav-push" onclick="switchPage('push')">
+      <span class="icon-mask icon-nav-push"></span>
       <span data-i18n="nav.push">推送链接</span>
     </div>
-    <div class="nav-item" onclick="switchPage('settings')">
+    <div class="nav-item" id="nav-settings" onclick="switchPage('settings')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
@@ -2177,6 +2249,31 @@
         <button class="modal-button cancel" onclick="exportTestEEWJson()" data-i18n="test.exportJson">导出JSON</button>
         <button class="modal-button cancel" onclick="closeEEWTestModal()" data-i18n="test.cancel">取消</button>
         <button class="modal-button confirm" onclick="sendEEWTest()" data-i18n="test.send">发送测试预警</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="onboarding-layer" id="onboardingLayer" style="display: none;">
+    <div class="ob-spotlight" id="obSpotlight" style="display: none;"></div>
+    <div class="ob-tip" id="obTip" style="display: none;">
+      <div class="ob-tip-step" id="obTipStep"></div>
+      <div class="ob-tip-title" id="obTipTitle"></div>
+      <div class="ob-tip-body" id="obTipBody"></div>
+      <div class="ob-tip-actions" id="obTipActions"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="obSimConsentModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 data-i18n="onboarding.sim.noticeTitle">模拟预警功能使用须知</h3>
+      </div>
+      <div class="modal-body">
+        <p data-i18n="onboarding.sim.noticeBody">本模拟预警功能仅供个人防震演练与教学体验使用。为避免造成不必要的误会，请勿在公共场合使用该功能。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button cancel" onclick="obSimConsent(false)" data-i18n="onboarding.sim.decline">暂不使用</button>
+        <button class="modal-button confirm" onclick="obSimConsent(true)" data-i18n="onboarding.sim.agree">同意并体验</button>
       </div>
     </div>
   </div>

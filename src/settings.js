@@ -49,6 +49,8 @@ class SettingsManager {
       minimizeToTray: true,
       titleBarStyle: 'windows',
       floatingNav: false,
+      // 首次安装完成后的交互式引导是否已完成（false 时下次启动若网络正常会再次引导）
+      onboardingDone: false,
       // 地图功能分级开关：总开关关闭则全部地图都不渲染；三个子开关分别控制地图页/事件详情页/预警弹窗
       mapEnabled: true,
       mapPageEnabled: true,

@@ -8,7 +8,7 @@
 
 [简体中文](README.md) · [繁體中文](README.zh-TW.md) · English · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[![Download V1.3.1](https://img.shields.io/badge/Download-V1.3.1-2563eb?style=for-the-badge&logo=github)](https://github.com/Latte0903/LaQuake/releases/latest)
+[![Download V1.3.2](https://img.shields.io/badge/Download-V1.3.2-2563eb?style=for-the-badge&logo=github)](https://github.com/Latte0903/LaQuake/releases/latest)
 [![All Releases](https://img.shields.io/badge/All-Releases-181717?style=for-the-badge)](https://github.com/Latte0903/LaQuake/releases)
 
 </div>

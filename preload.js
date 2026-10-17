@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   playSound: (soundName) => ipcRenderer.send('playSound', soundName),
   testSound: (soundName) => ipcRenderer.send('testSound', soundName),
   closeAlert: () => ipcRenderer.send('closeAlert'),
+  dismissEEWEvent: (eventId) => ipcRenderer.send('dismissEEWEvent', eventId),
   winMinimize: () => ipcRenderer.send('win-minimize'),
   winToggleMaximize: () => ipcRenderer.send('win-toggle-maximize'),
   winClose: () => ipcRenderer.send('win-close'),
@@ -49,6 +50,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendTestEEW: (data) => ipcRenderer.send('sendTestEEW', data),
   sendTestEEWSequence: (config) => ipcRenderer.invoke('sendTestEEWSequence', config),
   importTestEEWFile: () => ipcRenderer.invoke('testEewImportFile'),
+  getExampleEewSim: () => ipcRenderer.invoke('getExampleEewSim'),
   exportTestEEWFile: (suggestedName, content) =>
     ipcRenderer.invoke('testEewExportFile', { suggestedName, content }),
   testPush: () => ipcRenderer.invoke('sendTestPush'),

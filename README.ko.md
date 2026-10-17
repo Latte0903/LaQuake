@@ -8,7 +8,7 @@
 
 [简体中文](README.md) · [繁體中文](README.zh-TW.md) · [English](README.en.md) · [日本語](README.ja.md) · 한국어
 
-[![최신 버전 V1.3.1 다운로드](https://img.shields.io/badge/%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C-V1.3.1-2563eb?style=for-the-badge&logo=github)](https://github.com/Latte0903/LaQuake/releases/latest)
+[![최신 버전 V1.3.2 다운로드](https://img.shields.io/badge/%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C-V1.3.2-2563eb?style=for-the-badge&logo=github)](https://github.com/Latte0903/LaQuake/releases/latest)
 [![전체 버전](https://img.shields.io/badge/%EC%A0%84%EC%B2%B4%20%EB%B2%84%EC%A0%84-Releases-181717?style=for-the-badge)](https://github.com/Latte0903/LaQuake/releases)
 
 </div>

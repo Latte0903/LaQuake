@@ -181,6 +181,7 @@ function init() {
   setupEventListeners();
   runHealthCheck(true);
   setInterval(() => runHealthCheck(false), 120000);
+  maybeStartOnboarding();
 }
 
 function loadSettings() {
@@ -1394,7 +1395,16 @@ function handleLiveWavesExpired() {
 }
 
 // 手动关闭右上角预警信息卡：销毁波形、隐藏卡片、回到静态标记
+// 同时通知主进程标记该事件：后续报只入库，不再推送与弹窗
 function dismissLiveWarning() {
+  const eventId = liveAlertPayload && liveAlertPayload.eew ? liveAlertPayload.eew.EventID : null;
+  if (eventId && window.electronAPI.dismissEEWEvent) {
+    try {
+      window.electronAPI.dismissEEWEvent(eventId);
+    } catch (error) {
+      console.error('Failed to dismiss EEW event:', error);
+    }
+  }
   handleLiveWavesExpired();
 }
 
@@ -2000,6 +2010,360 @@ function showDisclaimer() {
 
 function closeDisclaimer() {
   document.getElementById('disclaimer-modal').classList.remove('active');
+}
+
+/* ==================== 首次运行交互式引导 ==================== */
+
+let obActive = false;
+let obPaused = false;
+let obIndex = -1;
+let obTimer = null;
+let obLastHadTarget = null;
+let obEnterTs = 0;
+let obBoundClick = null;
+
+// 元素真实可见性（兼容 fixed 定位元素）
+function obVisible(el) {
+  if (!el) return false;
+  if (el.getClientRects().length === 0) return false;
+  const cs = getComputedStyle(el);
+  return cs.display !== 'none' && cs.visibility !== 'hidden';
+}
+
+function obEl(selector) {
+  const el = selector ? document.querySelector(selector) : null;
+  return obVisible(el) ? el : null;
+}
+
+// 两个导航/菜单项之间需要等待数据或视图渲染完成，target 暂时解析不到时使用 waitKey 文案
+const OB_STEPS = [
+  {
+    centered: true,
+    titleKey: 'onboarding.intro.title',
+    bodyKey: 'onboarding.intro.body',
+    advance: 'manual',
+    nextKey: 'onboarding.start'
+  },
+  {
+    target: '#nav-eq',
+    titleKey: 'onboarding.s1.title',
+    bodyKey: 'onboarding.s1.body',
+    advance: 'click'
+  },
+  {
+    target: '#eqList .list-item',
+    titleKey: 'onboarding.s2.title',
+    bodyKey: 'onboarding.s2.body',
+    waitKey: 'onboarding.waitEq',
+    advance: 'click'
+  },
+  {
+    target: '.detail-back-button',
+    titleKey: 'onboarding.s3.title',
+    bodyKey: 'onboarding.s3.body',
+    advance: 'click'
+  },
+  {
+    target: '#nav-map',
+    titleKey: 'onboarding.s4.title',
+    bodyKey: 'onboarding.s4.body',
+    advance: 'click'
+  },
+  {
+    target: '#nav-settings',
+    titleKey: 'onboarding.s5.title',
+    bodyKey: 'onboarding.s5.body',
+    advance: 'click'
+  },
+  {
+    target: '#settingsMenuMap',
+    titleKey: 'onboarding.s6.title',
+    bodyKey: 'onboarding.s6.body',
+    waitKey: 'onboarding.waitSettings',
+    advance: 'click'
+  },
+  {
+    target: '#mapPageNotice',
+    titleKey: 'onboarding.s7.title',
+    bodyKey: 'onboarding.s7.body',
+    advance: 'check',
+    minDwell: 2200,
+    check: () => {
+      const el = document.getElementById('mapPageNotice');
+      return !!el && !el.classList.contains('active');
+    }
+  },
+  {
+    target: '#nav-map',
+    titleKey: 'onboarding.s8.title',
+    bodyKey: 'onboarding.s8.body',
+    advance: 'click'
+  },
+  {
+    centered: true,
+    titleKey: 'onboarding.sim.title',
+    bodyKey: 'onboarding.sim.body',
+    advance: 'choice'
+  },
+  {
+    target: '#wsClose',
+    titleKey: 'onboarding.s9.title',
+    bodyKey: 'onboarding.s9.body',
+    waitKey: 'onboarding.waitAlert',
+    advance: 'click'
+  },
+  {
+    centered: true,
+    titleKey: 'onboarding.finish.title',
+    bodyKey: 'onboarding.finish.body',
+    advance: 'manual',
+    nextKey: 'onboarding.done'
+  }
+];
+
+function obResolveTarget(step) {
+  if (!step || step.centered || !step.target) return null;
+  return obEl(step.target);
+}
+
+function obSetTipDisplay(show) {
+  const tip = document.getElementById('obTip');
+  if (tip) tip.style.display = show ? 'block' : 'none';
+}
+
+function obRenderActions(step) {
+  const box = document.getElementById('obTipActions');
+  box.innerHTML = '';
+  const addBtn = (labelKey, cls, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ob-btn' + (cls ? ' ' + cls : '');
+    b.textContent = t(labelKey);
+    b.addEventListener('click', onClick);
+    box.appendChild(b);
+    return b;
+  };
+  if (step.advance === 'manual') {
+    if (step.nextKey !== 'onboarding.done') addBtn('onboarding.skip', 'ghost', () => obEnd(true));
+    addBtn(step.nextKey || 'onboarding.next', 'primary', () => obNext());
+  } else if (step.advance === 'choice') {
+    addBtn('onboarding.sim.no', 'ghost', () => obEnd(true));
+    addBtn('onboarding.sim.yes', 'primary', () => obChooseSim());
+  } else {
+    addBtn('onboarding.skip', 'ghost', () => obEnd(true));
+  }
+}
+
+function obRender(step) {
+  const stepEl = document.getElementById('obTipStep');
+  const titleEl = document.getElementById('obTipTitle');
+  const bodyEl = document.getElementById('obTipBody');
+  const tip = document.getElementById('obTip');
+  const hasTarget = step.centered ? true : !!obResolveTarget(step);
+  stepEl.textContent = step.centered ? '' : t('onboarding.progress', obIndex + 1, OB_STEPS.length);
+  titleEl.textContent = t(step.titleKey);
+  bodyEl.textContent = (!step.centered && !hasTarget && step.waitKey) ? t(step.waitKey) : t(step.bodyKey);
+  obLastHadTarget = hasTarget;
+  tip.classList.toggle('centered', !!step.centered);
+  obRenderActions(step);
+  obPosition();
+}
+
+function obPosition() {
+  const step = OB_STEPS[obIndex];
+  if (!step) return;
+  const sp = document.getElementById('obSpotlight');
+  const tip = document.getElementById('obTip');
+  const layer = document.getElementById('onboardingLayer');
+  const target = step.centered ? null : obResolveTarget(step);
+
+  if (!target) {
+    // 居中步骤：隐藏聚光灯，改为整层压暗
+    sp.style.display = 'none';
+    if (layer) layer.style.background = 'rgba(3, 8, 20, 0.55)';
+    tip.style.left = '';
+    tip.style.top = '';
+    tip.classList.add('centered');
+    return;
+  }
+
+  if (layer) layer.style.background = '';
+  tip.classList.remove('centered');
+  const pad = 6;
+  const r = target.getBoundingClientRect();
+  sp.style.display = 'block';
+  sp.style.left = (r.left - pad) + 'px';
+  sp.style.top = (r.top - pad) + 'px';
+  sp.style.width = (r.width + pad * 2) + 'px';
+  sp.style.height = (r.height + pad * 2) + 'px';
+
+  const tw = 344;
+  const th = tip.offsetHeight || 180;
+  const gap = 14;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(12, Math.min(left, window.innerWidth - tw - 12));
+  let top;
+  if (r.top > window.innerHeight / 2) {
+    top = r.top - th - gap;
+    if (top < 12) top = r.bottom + gap;
+  } else {
+    top = r.bottom + gap;
+    if (top + th > window.innerHeight - 12) top = r.top - th - gap;
+  }
+  top = Math.max(12, Math.min(top, window.innerHeight - th - 12));
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+
+function obTick() {
+  if (!obActive || obPaused) return;
+  const step = OB_STEPS[obIndex];
+  if (!step) return;
+
+  // 目标出现状态变化时刷新正文（例如地震速报数据异步加载完成）
+  const hasTarget = step.centered ? true : !!obResolveTarget(step);
+  if (hasTarget !== obLastHadTarget) {
+    const bodyEl = document.getElementById('obTipBody');
+    bodyEl.textContent = (!step.centered && !hasTarget && step.waitKey) ? t(step.waitKey) : t(step.bodyKey);
+    obLastHadTarget = hasTarget;
+  }
+
+  obPosition();
+
+  if (step.advance === 'check' && typeof step.check === 'function') {
+    if ((Date.now() - obEnterTs) >= (step.minDwell || 0) && step.check()) {
+      obNext();
+    }
+  }
+}
+
+// 捕获阶段监听：不拦截真实点击，仅在用户点中当前高亮目标时推进
+function obHandleDocClick(e) {
+  if (!obActive || obPaused) return;
+  const step = OB_STEPS[obIndex];
+  if (!step || step.advance !== 'click') return;
+  const target = obResolveTarget(step);
+  if (target && (target === e.target || target.contains(e.target))) {
+    setTimeout(() => { if (obActive && !obPaused) obNext(); }, 40);
+  }
+}
+
+function obGoto(i) {
+  obIndex = i;
+  obEnterTs = Date.now();
+  obPaused = false;
+  obSetTipDisplay(true);
+  obRender(OB_STEPS[obIndex]);
+}
+
+function obNext() {
+  if (!obActive) return;
+  if (obIndex >= OB_STEPS.length - 1) {
+    obEnd(true);
+    return;
+  }
+  obGoto(obIndex + 1);
+}
+
+function obChooseSim() {
+  obPaused = true;
+  obSetTipDisplay(false);
+  const sp = document.getElementById('obSpotlight');
+  if (sp) sp.style.display = 'none';
+  const consent = document.getElementById('obSimConsentModal');
+  if (consent) consent.classList.add('active');
+}
+
+function obSimConsent(agree) {
+  const consent = document.getElementById('obSimConsentModal');
+  if (consent) consent.classList.remove('active');
+  if (!agree) {
+    obEnd(true);
+    return;
+  }
+  runExampleEewSim().then((ok) => {
+    if (!obActive) return;
+    // 示例启动成功 → 等待地图右上角预警信息卡出现；失败则直接进入结束步骤
+    obGoto(ok ? 10 : 11);
+  });
+}
+
+function obStart() {
+  if (obActive) return;
+  obActive = true;
+  obPaused = false;
+  obBoundClick = obHandleDocClick;
+  document.addEventListener('click', obBoundClick, true);
+  document.getElementById('onboardingLayer').style.display = 'block';
+  obLastHadTarget = null;
+  obGoto(0);
+  if (obTimer) clearInterval(obTimer);
+  obTimer = setInterval(obTick, 250);
+}
+
+function obEnd(markDone) {
+  if (!obActive) return;
+  obActive = false;
+  obPaused = false;
+  obIndex = -1;
+  if (obTimer) { clearInterval(obTimer); obTimer = null; }
+  if (obBoundClick) { document.removeEventListener('click', obBoundClick, true); obBoundClick = null; }
+  const layer = document.getElementById('onboardingLayer');
+  const tip = document.getElementById('obTip');
+  const sp = document.getElementById('obSpotlight');
+  const consent = document.getElementById('obSimConsentModal');
+  if (layer) layer.style.display = 'none';
+  if (layer) layer.style.background = '';
+  if (tip) tip.style.display = 'none';
+  if (sp) sp.style.display = 'none';
+  if (consent) consent.classList.remove('active');
+  if (markDone) {
+    settings.onboardingDone = true;
+    persistSetting({ onboardingDone: true });
+  }
+}
+
+// 使用内置示例文件（Media/Testjson/New_Test.json）新建一次多报时序模拟预警
+async function runExampleEewSim() {
+  try {
+    const res = await window.electronAPI.getExampleEewSim();
+    if (!res || !res.ok || !res.config) {
+      showToast(t('onboarding.sim.sampleFail'), 'error');
+      return false;
+    }
+    const r = await window.electronAPI.sendTestEEWSequence(res.config);
+    if (r && r.ok) {
+      showToast(t('onboarding.sim.started', r.count), 'success');
+      return true;
+    }
+    showToast(t('onboarding.sim.fail'), 'error');
+    return false;
+  } catch (error) {
+    console.error('runExampleEewSim failed:', error);
+    showToast(t('onboarding.sim.fail'), 'error');
+    return false;
+  }
+}
+
+// 首次安装完成打开运行时：网络正常且未完成过引导才展示
+async function maybeStartOnboarding() {
+  try {
+    if (settings.onboardingDone) return;
+  } catch (error) {
+    return;
+  }
+  // 稍作等待，让首屏与地震速报数据先加载
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  let net = false;
+  try {
+    const r = await window.electronAPI.runHealthCheck();
+    net = !!(r && r.net);
+  } catch (error) {
+    net = false;
+  }
+  // 网络不正常则不展示引导（不标记完成，下次启动再尝试）
+  if (!net) return;
+  obStart();
 }
 
 document.addEventListener('DOMContentLoaded', init);

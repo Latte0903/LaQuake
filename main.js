@@ -115,6 +115,14 @@ let isEQFirstLoad = true;
 let processedEEW = {};
 let alertExpireTime = 7200000;
 
+// 用户已关闭（弹窗关闭 / 地图预警卡关闭）的地震事件：
+// 其后所有报仍照常入库记录报数与信息，但不再向用户推送与弹窗
+const dismissedEEWEvents = new Set();
+
+function isEEWDismissed(eventId) {
+  return !!eventId && dismissedEEWEvents.has(eventId);
+}
+
 // 各数据源发震时间的 UTC 偏移：JMA 为 UTC+9，CENC/SC/FJ/CQ/CWA 均为 UTC+8
 const SOURCE_UTC_OFFSET = { cenc: 8, sc: 8, fj: 8, cq: 8, cwa: 8, jma: 9 };
 // 服务器时间 - 本机时间（ms）。客户端时钟可能有偏差，倒计时必须与真实时间轴对齐，
@@ -548,6 +556,11 @@ async function fetchEEWFromSource(source, count) {
       console.log(`EEW [${source}]: New report detected, serial:`, serial, 'prev max:', processedEEW[eventId].maxSerial);
       processedEEW[eventId].maxSerial = serial;
 
+      // 该事件已被用户关闭：仅入库（上方已 addEEW），不再推送与弹窗
+      if (isEEWDismissed(eventId)) {
+        return;
+      }
+
       const meetsThreshold = localIntensity >= settings.get('minLocalIntensity', 0);
       if (!isFirstLoad) {
         if (meetsThreshold) {
@@ -866,6 +879,7 @@ function createAlertWindow() {
 
   alertWindow.on('closed', () => {
     alertWindow = null;
+    if (currentEEW && currentEEW.EventID) dismissedEEWEvents.add(currentEEW.EventID);
     if (sWaveTimer) {
       clearInterval(sWaveTimer);
       sWaveTimer = null;
@@ -891,6 +905,9 @@ function showAlertWindow(payload) {
 }
 
 function handleEEWAlert(eew, localIntensity, source) {
+  // 用户已关闭该事件：不再推送与弹窗（历史记录仍由入库逻辑保留）
+  if (isEEWDismissed(eew.EventID)) return;
+
   const epicenterIntensity = eew._epicenterIntensity !== undefined && eew._epicenterIntensity !== null
     ? Number(eew._epicenterIntensity)
     : (intensityLib.parseShindo(eew.MaxIntensity ?? eew.max_intensity) ?? 0);
@@ -1201,6 +1218,9 @@ ipcMain.on('sendTestEEW', async (event, testData) => {
   if (serial > processedEEW[eventId].maxSerial) {
     processedEEW[eventId].maxSerial = serial;
     
+    // 该事件已被用户关闭：不再推送与弹窗
+    if (isEEWDismissed(eventId)) return;
+
     if (timeSinceOrigin <= expireTime) {
       if (localIntensity >= settings.get('minLocalIntensity', 0)) {
         const nowTime = Date.now();
@@ -1275,6 +1295,10 @@ function buildSimEEW(form, index, eventId, source, originStr, reportStr) {
 }
 
 async function dispatchSimulatedReport(eew, source) {
+  if (isEEWDismissed(eew.EventID)) {
+    console.log('Simulated report skipped: event dismissed');
+    return false;
+  }
   const { localIntensity, epicenterIntensity, region } = evaluateEewIntensity(eew, source);
   eew._epicenterIntensity = epicenterIntensity;
   eew._intRegion = region;
@@ -1373,6 +1397,18 @@ ipcMain.handle('testEewExportFile', async (event, payload) => {
   }
 });
 
+// 读取内置的模拟预警示例配置（供“再入示例”按钮与首次引导使用）
+ipcMain.handle('getExampleEewSim', async () => {
+  try {
+    const filePath = path.join(__dirname, 'Media', 'Testjson', 'New_Test.json');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    return { ok: true, config: JSON.parse(content) };
+  } catch (error) {
+    console.error('getExampleEewSim error:', error);
+    return { ok: false, error: error.message };
+  }
+});
+
 ipcMain.on('getEQHistory', async (event, count) => {
   console.log('getEQHistory called with count:', count);
   try {
@@ -1398,7 +1434,13 @@ ipcMain.on('getSoundFilePath', (event, soundName) => {
   event.returnValue = sound.getSoundFilePath(soundName);
 });
 
+// 地图页手动关闭预警卡：标记该事件不再推送与弹窗（历史记录仍照常保留）
+ipcMain.on('dismissEEWEvent', (event, eventId) => {
+  if (eventId) dismissedEEWEvents.add(eventId);
+});
+
 ipcMain.on('closeAlert', () => {
+  if (currentEEW && currentEEW.EventID) dismissedEEWEvents.add(currentEEW.EventID);
   if (sWaveTimer) {
     clearInterval(sWaveTimer);
     sWaveTimer = null;
